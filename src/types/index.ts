@@ -42,6 +42,11 @@ export interface Statistics {
   averageResponseTime: number;
   successRate: number;
   dailyStats: DailyStats[];
+  queueLength?: number;
+  totalErrors?: number;
+  lastMessageAt?: number;
+  lastResponseAt?: number;
+  lastError?: string | null;
 }
 
 export interface DailyStats {
