@@ -358,7 +358,7 @@ export class SnapchatDetector {
 
     const derivedTitle = context?.title ?? this.extractChatTitle(element);
     const derivedId = this.buildStableChatId(context?.chatId ?? this.extractChatIdentifier(element), derivedTitle, Date.now());
-    this.setActiveChat(derivedId, derivedTitle);
+    this.activeChatId = derivedId;
 
     ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, view: window });

@@ -953,7 +953,7 @@ class SnapchatBot {
           continue;
         }
 
-        await this.detector.openChat(chatItem.element, { chatId: resolvedListId, title: chatItem.title });
+        await this.detector.openChat(chatItem.element, { chatId: chatItem.chatId, title: chatItem.title });
         const isLoaded = await this.detector.waitForChatToLoad();
 
         if (!isLoaded) {
@@ -973,17 +973,9 @@ class SnapchatBot {
         }
 
         const lastMessage = messages[messages.length - 1];
-        const resolvedChatId = this.resolveChatIdentifier({
-          messageId: lastMessage?.chatId,
-          activeId: activeChatInfo?.chatId,
-          listId: resolvedListId,
-          title: activeChatInfo?.title || chatItem.title || this.getKnownChatTitle(resolvedListId)
-        });
+        const resolvedChatId = lastMessage?.chatId || activeChatInfo?.chatId || chatItem.chatId;
 
         const resolvedTitle = chatItem.title || activeChatInfo?.title || this.getKnownChatTitle(resolvedChatId);
-        this.updateChatMetadata(resolvedChatId, resolvedTitle);
-
-        const resolvedTitle = chatItem.title || this.getKnownChatTitle(chatItem.chatId) || this.getKnownChatTitle(resolvedChatId);
         this.updateChatMetadata(resolvedChatId, resolvedTitle);
 
         this.syncChatHistory(resolvedChatId, messages);
