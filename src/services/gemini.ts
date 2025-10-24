@@ -48,14 +48,21 @@ class GeminiService {
         maxTokens: 100
       }, activeConfig);
 
+      const rawContent = response.content?.trim() ?? '';
+
+      if (!rawContent) {
+        console.warn('Gemini analysis returned empty content, skipping response analysis');
+        return { shouldRespond: false, sentiment: 'neutral' };
+      }
+
       try {
-        const analysis = JSON.parse(response.content);
+        const analysis = JSON.parse(rawContent);
         return analysis;
       } catch (parseError) {
         console.error('Error parsing Gemini response as JSON:', parseError);
-        console.error('Raw response content:', response.content);
+        console.error('Raw response content:', rawContent);
         // Возвращаем безопасный анализ по умолчанию
-        return { shouldRespond: true, sentiment: 'neutral' };
+        return { shouldRespond: false, sentiment: 'neutral' };
       }
     } catch (error) {
       console.error('Error analyzing message with Gemini:', error);
@@ -148,7 +155,11 @@ class GeminiService {
       }
 
       const data = await response.json();
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      const content = parts
+        .map((part: { text?: string }) => part?.text ?? '')
+        .join('')
+        .trim();
 
       return {
         content,

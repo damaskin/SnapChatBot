@@ -766,6 +766,22 @@ class AdminController {
     document.getElementById('totalReplies')!.textContent = String(this.statistics.totalReplies);
     document.getElementById('activeChats')!.textContent = String(this.statistics.activeChats);
     document.getElementById('successRate')!.textContent = `${Math.round(this.statistics.successRate)}%`;
+    document.getElementById('queueLength')!.textContent = String(this.statistics.queueLength ?? 0);
+    document.getElementById('totalErrors')!.textContent = String(this.statistics.totalErrors ?? 0);
+    document.getElementById('lastResponseAt')!.textContent = this.formatTimestamp(this.statistics.lastResponseAt);
+  }
+
+  private formatTimestamp(timestamp?: number): string {
+    if (!timestamp) {
+      return '—';
+    }
+
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+
+    return date.toLocaleString();
   }
 
   private async loadLogs(): Promise<void> {
