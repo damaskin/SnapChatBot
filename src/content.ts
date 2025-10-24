@@ -13,6 +13,7 @@ class SnapchatBot {
   private chatSessions: Map<string, ChatMessage[]> = new Map();
 
   constructor() {
+    console.log('Snapchat Bot: Content script загружен на', window.location.href);
     this.detector = SnapchatDetector.getInstance();
     this.initialize();
   }
@@ -66,8 +67,16 @@ class SnapchatBot {
   }
 
   private isSnapchatPage(): boolean {
-    return window.location.hostname.includes('snapchat.com') || 
-           window.location.hostname.includes('web.snapchat.com');
+    const isSnapchat = window.location.hostname.includes('snapchat.com') || 
+                       window.location.hostname.includes('web.snapchat.com');
+    
+    console.log('Snapchat Bot: Проверка страницы:', {
+      hostname: window.location.hostname,
+      url: window.location.href,
+      isSnapchat: isSnapchat
+    });
+    
+    return isSnapchat;
   }
 
   private async loadConfig(): Promise<void> {
