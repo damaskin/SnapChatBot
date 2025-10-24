@@ -1,0 +1,40 @@
+{
+  "name": "snapchat-ai-bot",
+  "version": "1.0.0",
+  "description": "Chrome extension for AI-powered Snapchat messaging",
+  "main": "dist/background.js",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "dev": "webpack --mode=development --watch",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix"
+  },
+  "keywords": [
+    "chrome-extension",
+    "snapchat",
+    "ai",
+    "bot"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/chrome": "^0.0.254",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.8.1",
+    "eslint": "^8.45.0",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.4.4",
+    "typescript": "^5.1.6",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.2.1",
+    "@types/uuid": "^9.0.7",
+    "firebase": "^10.7.1",
+    "uuid": "^9.0.1"
+  }
+}

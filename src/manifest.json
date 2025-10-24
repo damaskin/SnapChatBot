@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Snapchat AI Bot",
+  "version": "1.0.0",
+  "description": "AI-powered messaging assistant for Snapchat",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "scripting",
+    "background"
+  ],
+  "host_permissions": [
+    "https://web.snapchat.com/*",
+    "https://app.snapchat.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.snapchat.com/*",
+        "https://app.snapchat.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Snapchat AI Bot"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["styles/*.css"],
+      "matches": ["https://web.snapchat.com/*", "https://app.snapchat.com/*"]
+    }
+  ]
+}
