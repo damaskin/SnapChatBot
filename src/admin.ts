@@ -441,11 +441,21 @@ class AdminController {
     const container = document.getElementById('keywordsList');
     if (container) {
       container.innerHTML = keywords.map(keyword => `
-        <div class="keyword-item">
+        <div class="keyword-item" data-keyword="${keyword}">
           <span>${keyword}</span>
-          <button class="btn-remove" onclick="adminController.removeKeywordFromList('${keyword}')">&times;</button>
+          <button class="btn-remove" data-keyword="${keyword}">&times;</button>
         </div>
       `).join('');
+      
+      // Добавляем обработчики событий
+      container.querySelectorAll('.btn-remove').forEach(button => {
+        button.addEventListener('click', (e) => {
+          const keyword = (e.target as HTMLElement).getAttribute('data-keyword');
+          if (keyword) {
+            this.removeKeywordFromList(keyword);
+          }
+        });
+      });
     }
   }
 
@@ -480,11 +490,21 @@ class AdminController {
     const container = document.getElementById('excludedUsersList');
     if (container) {
       container.innerHTML = users.map(user => `
-        <div class="excluded-user-item">
+        <div class="excluded-user-item" data-user="${user}">
           <span>${user}</span>
-          <button class="btn-remove" onclick="adminController.removeExcludedUserFromList('${user}')">&times;</button>
+          <button class="btn-remove" data-user="${user}">&times;</button>
         </div>
       `).join('');
+      
+      // Добавляем обработчики событий
+      container.querySelectorAll('.btn-remove').forEach(button => {
+        button.addEventListener('click', (e) => {
+          const user = (e.target as HTMLElement).getAttribute('data-user');
+          if (user) {
+            this.removeExcludedUserFromList(user);
+          }
+        });
+      });
     }
   }
 
@@ -551,7 +571,7 @@ class AdminController {
     const container = document.getElementById('agentsGrid');
     if (container) {
       container.innerHTML = this.agents.map(agent => `
-        <div class="agent-card">
+        <div class="agent-card" data-agent-id="${agent.id}">
           <div class="agent-header">
             <h3>${agent.name}</h3>
             <div class="agent-status ${agent.isActive ? 'active' : 'inactive'}">
@@ -563,14 +583,42 @@ class AdminController {
             <p><strong>Системный промпт:</strong> ${agent.systemPrompt.substring(0, 100)}...</p>
           </div>
           <div class="agent-actions">
-            <button class="btn btn-small" onclick="adminController.editAgent('${agent.id}')">Редактировать</button>
-            <button class="btn btn-small" onclick="adminController.deleteAgent('${agent.id}')">Удалить</button>
-            <button class="btn btn-small" onclick="adminController.toggleAgent('${agent.id}')">
+            <button class="btn btn-small edit-agent" data-agent-id="${agent.id}">Редактировать</button>
+            <button class="btn btn-small delete-agent" data-agent-id="${agent.id}">Удалить</button>
+            <button class="btn btn-small toggle-agent" data-agent-id="${agent.id}">
               ${agent.isActive ? 'Деактивировать' : 'Активировать'}
             </button>
           </div>
         </div>
       `).join('');
+      
+      // Добавляем обработчики событий для кнопок агентов
+      container.querySelectorAll('.edit-agent').forEach(button => {
+        button.addEventListener('click', (e) => {
+          const agentId = (e.target as HTMLElement).getAttribute('data-agent-id');
+          if (agentId) {
+            this.editAgent(agentId);
+          }
+        });
+      });
+      
+      container.querySelectorAll('.delete-agent').forEach(button => {
+        button.addEventListener('click', (e) => {
+          const agentId = (e.target as HTMLElement).getAttribute('data-agent-id');
+          if (agentId) {
+            this.deleteAgent(agentId);
+          }
+        });
+      });
+      
+      container.querySelectorAll('.toggle-agent').forEach(button => {
+        button.addEventListener('click', (e) => {
+          const agentId = (e.target as HTMLElement).getAttribute('data-agent-id');
+          if (agentId) {
+            this.toggleAgent(agentId);
+          }
+        });
+      });
     }
     
     // Обновляем отображение выбранного агента
