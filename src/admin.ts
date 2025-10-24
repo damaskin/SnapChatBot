@@ -330,33 +330,54 @@ class AdminController {
     }
   }
 
-   private async testGeminiConnection(): Promise<void> {
-     try {
-       // Используем настройки по умолчанию
-       const config = {
-         apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-         model: 'gemini-2.5-flash',
-         maxOutputTokens: 1000,
-         temperature: 0.7,
-         topP: 0.95,
-         topK: 40
-       };
+  private async testGeminiConnection(): Promise<void> {
+    const testButton = document.getElementById('testGemini') as HTMLButtonElement | null;
+    const originalText = testButton?.textContent || null;
 
-       const response = await this.sendMessage({
-         action: 'testGemini',
-         config
-       });
+    try {
+      if (testButton) {
+        testButton.disabled = true;
+        testButton.textContent = 'Проверяем...';
+      }
 
-       if (response.success && response.result) {
-         this.showSuccess('Gemini подключение успешно');
-       } else {
-         this.showError('Ошибка подключения к Gemini');
-       }
-     } catch (error) {
-       console.error('Gemini test failed:', error);
-       this.showError('Ошибка тестирования Gemini');
-     }
-   }
+      const apiKeyInput = document.getElementById('geminiApiKey') as HTMLInputElement | null;
+      const modelSelect = document.getElementById('geminiModel') as HTMLSelectElement | null;
+      const maxTokensInput = document.getElementById('geminiMaxTokens') as HTMLInputElement | null;
+      const temperatureInput = document.getElementById('geminiTemperature') as HTMLInputElement | null;
+      const topPInput = document.getElementById('geminiTopP') as HTMLInputElement | null;
+      const topKInput = document.getElementById('geminiTopK') as HTMLInputElement | null;
+
+      const config = {
+        apiKey: apiKeyInput?.value?.trim() || 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
+        model: modelSelect?.value || 'gemini-2.5-flash',
+        maxOutputTokens: parseInt(maxTokensInput?.value || '1000', 10) || 1000,
+        temperature: parseFloat(temperatureInput?.value || '0.7') || 0.7,
+        topP: parseFloat(topPInput?.value || '0.95') || 0.95,
+        topK: parseInt(topKInput?.value || '40', 10) || 40
+      };
+
+      const response = await this.sendMessage({
+        action: 'testGemini',
+        config
+      });
+
+      if (response.success && response.result) {
+        this.showSuccess('Gemini подключение успешно');
+      } else {
+        this.showError('Ошибка подключения к Gemini');
+      }
+    } catch (error) {
+      console.error('Gemini test failed:', error);
+      this.showError('Ошибка тестирования Gemini');
+    } finally {
+      if (testButton) {
+        testButton.disabled = false;
+        if (originalText !== null) {
+          testButton.textContent = originalText;
+        }
+      }
+    }
+  }
 
   private async testHuggingFaceConnection(): Promise<void> {
     try {
