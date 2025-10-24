@@ -339,7 +339,12 @@ class BackgroundService {
         activeChats: 0,
         averageResponseTime: 0,
         successRate: 0,
-        dailyStats: []
+        dailyStats: [],
+        queueLength: 0,
+        totalErrors: 0,
+        lastMessageAt: 0,
+        lastResponseAt: 0,
+        lastError: null
       };
 
       // Обновляем статистику
@@ -384,7 +389,12 @@ class BackgroundService {
         activeChats: 0,
         averageResponseTime: 0,
         successRate: 0,
-        dailyStats: []
+        dailyStats: [],
+        queueLength: 0,
+        totalErrors: 0,
+        lastMessageAt: 0,
+        lastResponseAt: 0,
+        lastError: null
       };
       
       // Сохраняем дефолтную статистику
@@ -400,7 +410,12 @@ class BackgroundService {
         activeChats: 0,
         averageResponseTime: 0,
         successRate: 0,
-        dailyStats: []
+        dailyStats: [],
+        queueLength: 0,
+        totalErrors: 0,
+        lastMessageAt: 0,
+        lastResponseAt: 0,
+        lastError: null
       };
     }
   }
