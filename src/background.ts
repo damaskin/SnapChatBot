@@ -159,11 +159,17 @@ class BackgroundService {
           sendResponse({ success: true, result: connectionResult });
           break;
 
-        case 'testGemini': {
-          const geminiResult = await this.testGeminiConnection(request.config);
-          sendResponse({ success: true, result: geminiResult });
-          break;
-        }
+         case 'testGemini': {
+           const geminiResult = await this.testGeminiConnection(request.config);
+           sendResponse({ success: true, result: geminiResult });
+           break;
+         }
+
+         case 'testHuggingFace': {
+           const hfResult = await this.testHuggingFaceConnection(request.config);
+           sendResponse({ success: true, result: hfResult });
+           break;
+         }
 
         case 'exportData':
           const exportData = await this.exportData();
@@ -416,38 +422,60 @@ class BackgroundService {
     return result;
   }
 
-  private async testGeminiConnection(config?: GeminiConfig): Promise<boolean> {
-    try {
-      const { geminiService } = await import('./services/gemini');
+   private async testGeminiConnection(config?: GeminiConfig): Promise<boolean> {
+     try {
+       const { geminiService } = await import('./services/gemini');
 
-      let effectiveConfig: GeminiConfig | null = null;
+       let effectiveConfig: GeminiConfig | null = null;
 
-      if (config?.apiKey) {
-        effectiveConfig = config;
-      } else {
-        const storedConfig = await chrome.storage.sync.get('geminiConfig');
-        if (storedConfig.geminiConfig) {
-          effectiveConfig = storedConfig.geminiConfig as GeminiConfig;
-        }
-      }
+       if (config?.apiKey) {
+         effectiveConfig = config;
+       } else {
+         const storedConfig = await chrome.storage.sync.get('geminiConfig');
+         if (storedConfig.geminiConfig) {
+           effectiveConfig = storedConfig.geminiConfig as GeminiConfig;
+         }
+       }
 
-      if (!effectiveConfig) {
-        effectiveConfig = {
-          apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-          model: 'gemini-1.5-flash',
-          maxOutputTokens: 1000,
-          temperature: 0.7,
-          topP: 0.95,
-          topK: 40
-        };
-      }
+       if (!effectiveConfig) {
+         effectiveConfig = {
+           apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
+           model: 'gemini-1.5-flash',
+           maxOutputTokens: 1000,
+           temperature: 0.7,
+           topP: 0.95,
+           topK: 40
+         };
+       }
 
-      return await geminiService.testConnection(effectiveConfig);
-    } catch (error) {
-      console.error('Gemini test failed:', error);
-      return false;
-    }
-  }
+       return await geminiService.testConnection(effectiveConfig);
+     } catch (error) {
+       console.error('Gemini test failed:', error);
+       return false;
+     }
+   }
+
+   private async testHuggingFaceConnection(config?: any): Promise<boolean> {
+     try {
+       const { huggingFaceService } = await import('./services/huggingface');
+
+       if (!config) {
+         const storedConfig = await chrome.storage.sync.get('huggingFaceConfig');
+         config = storedConfig.huggingFaceConfig;
+       }
+
+       if (!config?.apiKey) {
+         console.error('Hugging Face API key not provided');
+         return false;
+       }
+
+       huggingFaceService.initialize(config);
+       return await huggingFaceService.testConnection();
+     } catch (error) {
+       console.error('Hugging Face test failed:', error);
+       return false;
+     }
+   }
 
   private async exportData(): Promise<any> {
     const result = await chrome.storage.sync.get(null);

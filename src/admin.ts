@@ -338,45 +338,33 @@ class AdminController {
     }
   }
 
-  private async testGeminiConnection(): Promise<void> {
-    try {
-      // Используем настройки по умолчанию
-      const geminiApiKey = document.getElementById('geminiApiKey') as HTMLInputElement;
-      const geminiModel = document.getElementById('geminiModel') as HTMLSelectElement;
-      const geminiMaxTokens = document.getElementById('geminiMaxTokens') as HTMLInputElement;
-      const geminiTemperature = document.getElementById('geminiTemperature') as HTMLInputElement;
-      const geminiTopP = document.getElementById('geminiTopP') as HTMLInputElement;
-      const geminiTopK = document.getElementById('geminiTopK') as HTMLInputElement;
+   private async testGeminiConnection(): Promise<void> {
+     try {
+       // Используем настройки по умолчанию
+       const config = {
+         apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
+         model: 'gemini-1.5-flash',
+         maxOutputTokens: 1000,
+         temperature: 0.7,
+         topP: 0.95,
+         topK: 40
+       };
 
-      if (!geminiApiKey || !geminiModel || !geminiMaxTokens || !geminiTemperature || !geminiTopP || !geminiTopK) {
-        this.showError('Элементы конфигурации Gemini не найдены');
-        return;
-      }
+       const response = await this.sendMessage({
+         action: 'testGemini',
+         config
+       });
 
-      const config = {
-        apiKey: geminiApiKey.value,
-        model: geminiModel.value,
-        maxOutputTokens: parseInt(geminiMaxTokens.value || '1000', 10),
-        temperature: parseFloat(geminiTemperature.value || '0.7'),
-        topP: parseFloat(geminiTopP.value || '0.95'),
-        topK: parseInt(geminiTopK.value || '40', 10)
-      };
-
-      const response = await this.sendMessage({
-        action: 'testGemini',
-        config
-      });
-
-      if (response.success && response.result) {
-        this.showSuccess('Gemini подключение успешно');
-      } else {
-        this.showError('Ошибка подключения к Gemini');
-      }
-    } catch (error) {
-      console.error('Gemini test failed:', error);
-      this.showError('Ошибка тестирования Gemini');
-    }
-  }
+       if (response.success && response.result) {
+         this.showSuccess('Gemini подключение успешно');
+       } else {
+         this.showError('Ошибка подключения к Gemini');
+       }
+     } catch (error) {
+       console.error('Gemini test failed:', error);
+       this.showError('Ошибка тестирования Gemini');
+     }
+   }
 
   private async testHuggingFaceConnection(): Promise<void> {
     try {
