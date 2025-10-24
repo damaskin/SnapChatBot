@@ -43,6 +43,8 @@ class AdminController {
       if (response.success) {
         this.agents = response.agents;
         this.renderAgents();
+        // Обновляем отображение выбранного агента после загрузки
+        this.updateSelectedAgentUI();
       }
     } catch (error) {
       console.error('Failed to load agents:', error);
@@ -555,9 +557,11 @@ class AdminController {
       });
 
       if (response.success) {
-        this.showSuccess('Агент создан');
+        this.showSuccess('Агент создан и активирован');
         this.hideAgentModal();
         await this.loadAgents();
+        // Обновляем UI после создания агента
+        this.updateSelectedAgentUI();
       } else {
         throw new Error(response.error || 'Ошибка создания агента');
       }
@@ -637,6 +641,62 @@ class AdminController {
         agentStatusElement.textContent = 'Не выбран';
         agentStatusElement.className = 'status-disabled';
       }
+    }
+  }
+
+  // Публичные методы для вызова из HTML
+  public editAgent(agentId: string): void {
+    const agent = this.agents.find(a => a.id === agentId);
+    if (agent) {
+      // Заполняем форму редактирования
+      (document.getElementById('agentName') as HTMLInputElement).value = agent.name;
+      (document.getElementById('agentPersonality') as HTMLTextAreaElement).value = agent.personality;
+      (document.getElementById('agentSystemPrompt') as HTMLTextAreaElement).value = agent.systemPrompt;
+      
+      // Сохраняем ID для обновления
+      (document.getElementById('saveAgent') as HTMLElement).setAttribute('data-agent-id', agentId);
+      
+      this.showAgentModal();
+    }
+  }
+
+  public async deleteAgent(agentId: string): Promise<void> {
+    if (confirm('Вы уверены, что хотите удалить этого агента?')) {
+      try {
+        const response = await this.sendMessage({
+          action: 'deleteAgent',
+          agentId
+        });
+
+        if (response.success) {
+          this.showSuccess('Агент удален');
+          await this.loadAgents();
+        } else {
+          throw new Error(response.error || 'Ошибка удаления агента');
+        }
+      } catch (error) {
+        console.error('Failed to delete agent:', error);
+        this.showError('Ошибка удаления агента');
+      }
+    }
+  }
+
+  public async toggleAgent(agentId: string): Promise<void> {
+    try {
+      const response = await this.sendMessage({
+        action: 'toggleAgent',
+        agentId
+      });
+
+      if (response.success) {
+        this.showSuccess('Агент активирован');
+        await this.loadAgents();
+      } else {
+        throw new Error(response.error || 'Ошибка активации агента');
+      }
+    } catch (error) {
+      console.error('Failed to toggle agent:', error);
+      this.showError('Ошибка активации агента');
     }
   }
 
@@ -738,17 +798,6 @@ class AdminController {
     this.removeExcludedUser(user);
   }
 
-  public editAgent(agentId: string): void {
-    console.log('Edit agent:', agentId);
-  }
-
-  public deleteAgent(agentId: string): void {
-    console.log('Delete agent:', agentId);
-  }
-
-  public toggleAgent(agentId: string): void {
-    console.log('Toggle agent:', agentId);
-  }
 
   private async toggleBot(isEnabled: boolean): Promise<void> {
     try {

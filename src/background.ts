@@ -194,6 +194,11 @@ class BackgroundService {
           sendResponse({ success: true });
           break;
 
+        case 'toggleAgent':
+          await this.toggleAgent(request.agentId);
+          sendResponse({ success: true });
+          break;
+
         case 'toggleBot':
           await this.toggleBot(request.isEnabled);
           sendResponse({ success: true });
@@ -442,10 +447,18 @@ class BackgroundService {
 
     const result = await chrome.storage.sync.get('agents');
     const agents: AIAgent[] = result.agents || [];
+    
+    // Если это первый агент или нет активных агентов, активируем его
+    if (agents.length === 0 || !agents.some(a => a.isActive)) {
+      agent.isActive = true;
+      // Деактивируем всех остальных агентов
+      agents.forEach(a => a.isActive = false);
+    }
+    
     agents.push(agent);
     
     await chrome.storage.sync.set({ agents });
-    console.log('Agent created:', agent.name);
+    console.log('Agent created:', agent.name, 'Active:', agent.isActive);
   }
 
   private async getAgents(): Promise<AIAgent[]> {
@@ -472,6 +485,22 @@ class BackgroundService {
     
     await chrome.storage.sync.set({ agents: filteredAgents });
     console.log('Agent deleted:', agentId);
+  }
+
+  private async toggleAgent(agentId: string): Promise<void> {
+    const result = await chrome.storage.sync.get('agents');
+    const agents: AIAgent[] = result.agents || [];
+    const agent = agents.find(a => a.id === agentId);
+    
+    if (agent) {
+      // Деактивируем всех агентов
+      agents.forEach(a => a.isActive = false);
+      // Активируем выбранного агента
+      agent.isActive = true;
+      
+      await chrome.storage.sync.set({ agents });
+      console.log('Agent toggled:', agent.name, 'Active:', agent.isActive);
+    }
   }
 
   private async toggleBot(isEnabled: boolean): Promise<void> {
