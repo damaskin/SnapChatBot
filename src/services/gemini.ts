@@ -30,11 +30,15 @@ class GeminiService {
   async analyzeMessage(messageText: string, keywords: string[]): Promise<{ shouldRespond: boolean; sentiment: string }> {
     const prompt = `Сообщение: "${messageText}"
 Ключевые слова для ответа: ${keywords.join(', ')}
+
+ВАЖНО: Верни ТОЛЬКО валидный JSON без дополнительного текста!
+
 Проанализируй сообщение и определи:
-1. Нужно ли отвечать на это сообщение? Отвечать нужно, если сообщение содержит одно из ключевых слов или является вопросом, или
-требует реакции.
+1. Нужно ли отвечать на это сообщение? Отвечать нужно, если сообщение содержит одно из ключевых слов или является вопросом, или требует реакции.
 2. Определи общий сентимент сообщения (позитивный, негативный, нейтральный).
-Ответ должен быть в формате JSON: {"shouldRespond": boolean, "sentiment": "string"}`;
+
+Формат ответа:
+{"shouldRespond": true, "sentiment": "neutral"}`;
 
     try {
       const activeConfig = this.resolveConfig();
@@ -44,8 +48,15 @@ class GeminiService {
         maxTokens: 100
       }, activeConfig);
 
-      const analysis = JSON.parse(response.content);
-      return analysis;
+      try {
+        const analysis = JSON.parse(response.content);
+        return analysis;
+      } catch (parseError) {
+        console.error('Error parsing Gemini response as JSON:', parseError);
+        console.error('Raw response content:', response.content);
+        // Возвращаем безопасный анализ по умолчанию
+        return { shouldRespond: true, sentiment: 'neutral' };
+      }
     } catch (error) {
       console.error('Error analyzing message with Gemini:', error);
       return { shouldRespond: false, sentiment: 'neutral' };

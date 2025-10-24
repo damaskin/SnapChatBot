@@ -273,7 +273,7 @@ class AdminController {
       },
       geminiConfig: {
         apiKey: (document.getElementById('geminiApiKey') as HTMLInputElement)?.value || '',
-        model: (document.getElementById('geminiModel') as HTMLSelectElement)?.value || 'gemini-1.0-pro',
+        model: (document.getElementById('geminiModel') as HTMLSelectElement)?.value || 'gemini-2.5-flash',
         maxOutputTokens: parseInt((document.getElementById('geminiMaxTokens') as HTMLInputElement)?.value || '1000'),
         temperature: parseFloat((document.getElementById('geminiTemperature') as HTMLInputElement)?.value || '0.7'),
         topP: parseFloat((document.getElementById('geminiTopP') as HTMLInputElement)?.value || '0.8'),

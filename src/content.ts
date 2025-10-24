@@ -219,6 +219,12 @@ class SnapchatBot {
       return;
     }
 
+    // Дополнительная проверка на пустые или некорректные сообщения
+    if (!message.text || message.text.trim().length === 0) {
+      console.log('Snapchat Bot: Пропускаем пустое сообщение');
+      return;
+    }
+
     // Проверяем исключенных пользователей
     if (this.config.excludedUsers.includes(message.chatId)) {
       return;
@@ -615,14 +621,25 @@ class SnapchatBot {
       'Download',
       'Update',
       'New feature',
-      'Try it now'
+      'Try it now',
+      'Typing...',
+      'just now',
+      'now',
+      'typing',
+      'online',
+      'offline',
+      'last seen',
+      'seen',
+      'delivered',
+      'sent'
     ];
     
-    const lowerText = text.toLowerCase();
+    const lowerText = text.toLowerCase().trim();
     return systemMessages.some(msg => lowerText.includes(msg.toLowerCase())) || 
            text.length < 3 || 
            /^[.,!?]+$/.test(text) ||
-           /^[A-Z\s]+$/.test(text);
+           /^[A-Z\s]+$/.test(text) ||
+           /^(now|typing|online|offline|seen|delivered|sent)$/i.test(lowerText);
   }
 }
 
