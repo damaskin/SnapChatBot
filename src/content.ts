@@ -11,6 +11,9 @@ class SnapchatBot {
   private config: BotConfig | null = null;
   private currentAgent: AIAgent | null = null;
   private chatSessions: Map<string, ChatMessage[]> = new Map();
+  private processedChats: Set<string> = new Set();
+  private isProcessingChats = false;
+  private chatProcessingInterval: number | null = null;
 
   constructor() {
     console.log('Snapchat Bot: Content script загружен на', window.location.href);
@@ -51,15 +54,16 @@ class SnapchatBot {
       if (this.isEnabled) {
         // Инициализируем детектор
         this.detector.initialize();
-        
+
         // Подписываемся на события
         this.setupEventListeners();
-        
+
         console.log('Snapchat Bot: Бот активирован и готов к работе');
+        this.startChatProcessing();
       } else {
         console.log('Snapchat Bot: Бот отключен в конфигурации');
       }
-      
+
       console.log('Snapchat Bot: Инициализация завершена успешно');
     } catch (error) {
       console.error('Snapchat Bot: Ошибка инициализации:', error);
@@ -146,6 +150,12 @@ class SnapchatBot {
       this.handleNewMessage(event.detail);
     });
 
+    document.addEventListener('snapchat-chat-list-change', () => {
+      if (this.isEnabled) {
+        this.processPendingChats();
+      }
+    });
+
     // Слушаем изменения конфигурации
     chrome.storage.onChanged.addListener((changes, namespace) => {
       if (namespace === 'sync' && changes.botConfig) {
@@ -155,6 +165,13 @@ class SnapchatBot {
 
         const previousAgentId = previousConfig?.selectedAgentId || null;
         const nextAgentId = this.config?.selectedAgentId || null;
+
+        const wasEnabled = previousConfig?.isEnabled || false;
+        if (!wasEnabled && this.isEnabled) {
+          this.startChatProcessing();
+        } else if (wasEnabled && !this.isEnabled) {
+          this.stopChatProcessing();
+        }
 
         if (previousAgentId !== nextAgentId) {
           if (nextAgentId) {
@@ -208,7 +225,10 @@ class SnapchatBot {
       this.addMessageToHistory(message);
 
       // Генерируем ответ
-      await this.generateAndSendResponse(message.chatId);
+      const responded = await this.generateAndSendResponse(message.chatId);
+      if (responded) {
+        this.processedChats.add(message.chatId.toLowerCase());
+      }
 
     } catch (error) {
       console.error('Error handling new message:', error);
@@ -244,20 +264,20 @@ class SnapchatBot {
     }
   }
 
-  private async generateAndSendResponse(chatId: string): Promise<void> {
+  private async generateAndSendResponse(chatId: string): Promise<boolean> {
     if (!this.currentAgent) {
       console.error('No AI agent selected');
-      return;
+      return false;
     }
 
     try {
       const chatHistory = this.chatSessions.get(chatId) || [];
-      const unreadMessages = chatHistory.filter(msg => 
+      const unreadMessages = chatHistory.filter(msg =>
         msg.sender === 'other' && !msg.isRead
       );
 
       if (unreadMessages.length === 0) {
-        return;
+        return false;
       }
 
       // Генерируем ответ с fallback
@@ -295,9 +315,14 @@ class SnapchatBot {
         }
       }
 
+      const delay = this.config?.responseDelay || 0;
+      if (delay > 0) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
       // Отправляем ответ
       const success = await this.detector.sendMessage(response);
-      
+
       if (success) {
         // Отмечаем сообщения как прочитанные
         unreadMessages.forEach(msg => {
@@ -306,11 +331,15 @@ class SnapchatBot {
 
         // Сохраняем статистику
         await this.updateStatistics(chatId, response);
+        this.processedChats.add(chatId.toLowerCase());
+        return true;
       }
 
     } catch (error) {
       console.error('Error generating response:', error);
     }
+
+    return false;
   }
 
   private getChatContext(chatId: string): string {
@@ -384,6 +413,11 @@ class SnapchatBot {
           this.config.isEnabled = this.isEnabled;
           await chrome.storage.sync.set({ botConfig: this.config });
         }
+        if (this.isEnabled) {
+          this.startChatProcessing();
+        } else {
+          this.stopChatProcessing();
+        }
         sendResponse({ success: true });
         break;
         
@@ -391,9 +425,9 @@ class SnapchatBot {
         if (request.message && this.currentAgent) {
           try {
             const response = await geminiService.generateResponse(
-              [{ 
-                id: 'test', 
-                text: request.message, 
+              [{
+                id: 'test',
+                text: request.message,
                 sender: 'other', 
                 timestamp: Date.now(), 
                 chatId: 'test',
@@ -409,10 +443,146 @@ class SnapchatBot {
           sendResponse({ success: false, error: 'No agent or message provided' });
         }
         break;
-        
+
       default:
         sendResponse({ success: false, error: 'Unknown action' });
     }
+  }
+
+  private startChatProcessing(): void {
+    if (this.chatProcessingInterval !== null) {
+      window.clearInterval(this.chatProcessingInterval);
+    }
+
+    this.processedChats.clear();
+    this.chatProcessingInterval = window.setInterval(() => {
+      this.processPendingChats();
+    }, 15000);
+
+    this.processPendingChats();
+  }
+
+  private stopChatProcessing(): void {
+    if (this.chatProcessingInterval !== null) {
+      window.clearInterval(this.chatProcessingInterval);
+      this.chatProcessingInterval = null;
+    }
+  }
+
+  private shouldSkipChat(chatId: string, title: string): boolean {
+    if (!this.config) {
+      return false;
+    }
+
+    const normalizedId = chatId.toLowerCase();
+    const normalizedTitle = title.toLowerCase();
+
+    return this.config.excludedUsers.some((user) => {
+      const normalizedUser = user.toLowerCase();
+      return normalizedUser === normalizedId || normalizedUser === normalizedTitle;
+    });
+  }
+
+  private async processPendingChats(): Promise<void> {
+    if (!this.isEnabled || this.isProcessingChats) {
+      return;
+    }
+
+    this.isProcessingChats = true;
+
+    try {
+      const chatItems = this.detector.getChatListItems();
+
+      for (const chatItem of chatItems) {
+        const normalizedListId = chatItem.chatId.toLowerCase();
+
+        if (this.processedChats.has(normalizedListId)) {
+          continue;
+        }
+
+        if (this.shouldSkipChat(chatItem.chatId, chatItem.title)) {
+          this.processedChats.add(normalizedListId);
+          continue;
+        }
+
+        await this.detector.openChat(chatItem.element);
+        const isLoaded = await this.detector.waitForChatToLoad();
+
+        if (!isLoaded) {
+          continue;
+        }
+
+        const messages = await this.detector.collectChatMessages(50);
+
+        if (messages.length === 0) {
+          this.processedChats.add(normalizedListId);
+          continue;
+        }
+
+        const lastMessage = messages[messages.length - 1];
+        const resolvedChatIdRaw = lastMessage?.chatId || chatItem.chatId || normalizedListId;
+        const resolvedChatId = resolvedChatIdRaw || normalizedListId;
+
+        this.syncChatHistory(resolvedChatId, messages);
+
+        if (lastMessage && lastMessage.sender === 'other') {
+          const responded = await this.generateAndSendResponse(resolvedChatId);
+          if (!responded) {
+            // Если ответ не отправлен, не помечаем чат как обработанный
+            continue;
+          }
+          this.processedChats.add(normalizedListId);
+        } else {
+          this.processedChats.add(resolvedChatId.toLowerCase());
+          this.processedChats.add(normalizedListId);
+        }
+      }
+    } catch (error) {
+      console.error('Snapchat Bot: Ошибка при обработке чатов:', error);
+    } finally {
+      this.isProcessingChats = false;
+    }
+  }
+
+  private syncChatHistory(chatId: string, messages: Array<{
+    text: string;
+    sender: 'user' | 'other';
+    timestamp: number;
+    chatId: string;
+  }>): void {
+    const existingHistory = this.chatSessions.get(chatId) || [];
+    const updatedHistory = [...existingHistory];
+
+    messages.forEach((message, index) => {
+      if (!message.text) {
+        return;
+      }
+
+      const duplicate = updatedHistory.find(existingMessage =>
+        existingMessage.sender === message.sender &&
+        existingMessage.text === message.text &&
+        Math.abs(existingMessage.timestamp - message.timestamp) < 5000
+      );
+
+      if (!duplicate) {
+        updatedHistory.push({
+          id: `${chatId}-${message.timestamp || Date.now()}-${index}`,
+          text: message.text,
+          sender: message.sender,
+          timestamp: message.timestamp || Date.now(),
+          chatId,
+          isRead: message.sender !== 'other'
+        });
+      }
+    });
+
+    updatedHistory.sort((a, b) => a.timestamp - b.timestamp);
+
+    if (updatedHistory.length > 50) {
+      updatedHistory.splice(0, updatedHistory.length - 50);
+    }
+
+    this.chatSessions.set(chatId, updatedHistory);
   }
 }
 
