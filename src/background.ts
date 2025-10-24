@@ -10,6 +10,8 @@ class BackgroundService {
 
   private async initialize(): Promise<void> {
     try {
+      console.log('Background: Начинаем инициализацию background service');
+      
       // Инициализируем Firebase при запуске
       await this.loadFirebaseConfig();
       
@@ -17,9 +19,9 @@ class BackgroundService {
       this.setupListeners();
       
       this.isInitialized = true;
-      console.log('Background service initialized');
+      console.log('Background: Background service initialized successfully');
     } catch (error) {
-      console.error('Failed to initialize background service:', error);
+      console.error('Background: Failed to initialize background service:', error);
     }
   }
 
@@ -138,6 +140,8 @@ class BackgroundService {
     sendResponse: (response: any) => void
   ): Promise<void> {
     try {
+      console.log('Background: Получено сообщение:', request.action, 'от', sender.tab?.url || 'unknown');
+      
       switch (request.action) {
         case 'getConfig':
           const config = await this.getConfig();

@@ -19,6 +19,14 @@ class SnapchatBot {
 
   private async initialize(): Promise<void> {
     try {
+      console.log('Snapchat Bot: Инициализация на', window.location.href);
+      
+      // Проверяем, что мы на Snapchat
+      if (!this.isSnapchatPage()) {
+        console.log('Snapchat Bot: Не на странице Snapchat, пропускаем инициализацию');
+        return;
+      }
+      
       // Загружаем конфигурацию из storage
       await this.loadConfig();
       
@@ -28,10 +36,15 @@ class SnapchatBot {
       // Подписываемся на события
       this.setupEventListeners();
       
-      console.log('Snapchat Bot initialized');
+      console.log('Snapchat Bot: Инициализация завершена успешно');
     } catch (error) {
-      console.error('Failed to initialize Snapchat Bot:', error);
+      console.error('Snapchat Bot: Ошибка инициализации:', error);
     }
+  }
+
+  private isSnapchatPage(): boolean {
+    return window.location.hostname.includes('snapchat.com') || 
+           window.location.hostname.includes('web.snapchat.com');
   }
 
   private async loadConfig(): Promise<void> {

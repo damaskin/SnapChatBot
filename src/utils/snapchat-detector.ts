@@ -61,22 +61,32 @@ export class SnapchatDetector {
   }
 
   private findMessageContainer(): Element | null {
-    // Ищем контейнер с сообщениями в Snapchat
+    // Ищем контейнер с сообщениями в Snapchat Web
     const selectors = [
+      // Snapchat Web специфичные селекторы
       '[data-testid="message-list"]',
+      '[data-testid="chat-messages"]',
       '.message-list',
-      '[role="log"]',
       '.chat-messages',
-      '[data-testid="chat-messages"]'
+      '[role="log"]',
+      // Общие селекторы
+      'main',
+      '[data-testid="conversation"]',
+      '.conversation',
+      // Fallback
+      'body'
     ];
 
     for (const selector of selectors) {
       const element = document.querySelector(selector);
-      if (element) return element;
+      if (element) {
+        console.log('SnapchatDetector: Найден контейнер сообщений:', selector);
+        return element;
+      }
     }
 
-    // Fallback - ищем по структуре
-    return document.querySelector('main') || document.body;
+    console.log('SnapchatDetector: Контейнер сообщений не найден, используем body');
+    return document.body;
   }
 
   private findChatList(): Element | null {
@@ -132,16 +142,47 @@ export class SnapchatDetector {
       chatId: string;
     }> = [];
 
-    // Ищем сообщения в элементе
-    const messageElements = element.querySelectorAll('[data-testid="message"], .message, [role="listitem"]');
+    // Ищем сообщения в элементе - более широкий набор селекторов для Snapchat Web
+    const messageSelectors = [
+      '[data-testid="message"]',
+      '[data-testid="chat-message"]',
+      '.message',
+      '.chat-message',
+      '[role="listitem"]',
+      '[data-testid="conversation-item"]',
+      '.conversation-item',
+      // Общие селекторы для текстовых элементов
+      'div[class*="message"]',
+      'div[class*="chat"]',
+      'span[class*="text"]',
+      'p[class*="text"]'
+    ];
+
+    let messageElements: NodeListOf<Element> | null = null;
+    
+    for (const selector of messageSelectors) {
+      messageElements = element.querySelectorAll(selector);
+      if (messageElements.length > 0) {
+        console.log(`SnapchatDetector: Найдено ${messageElements.length} элементов с селектором: ${selector}`);
+        break;
+      }
+    }
+    
+    if (!messageElements || messageElements.length === 0) {
+      console.log('SnapchatDetector: Сообщения не найдены, пробуем поиск по всему элементу');
+      // Если не нашли по селекторам, ищем все текстовые элементы
+      messageElements = element.querySelectorAll('div, span, p');
+    }
     
     messageElements.forEach((msgEl) => {
       const text = this.extractMessageText(msgEl);
-      if (text) {
+      if (text && text.length > 0) {
         const sender = this.determineSender(msgEl);
         const timestamp = this.extractTimestamp(msgEl);
         const chatId = this.getCurrentChatId();
 
+        console.log(`SnapchatDetector: Найдено сообщение: "${text}" от ${sender}`);
+        
         messages.push({
           text,
           sender,
