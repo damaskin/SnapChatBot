@@ -21,7 +21,8 @@
     {
       "matches": [
         "https://web.snapchat.com/*",
-        "https://app.snapchat.com/*"
+        "https://app.snapchat.com/*",
+        "https://www.snapchat.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_end"

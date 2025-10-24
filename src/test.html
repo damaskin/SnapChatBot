@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snapchat Bot Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Snapchat Bot Test</h1>
+        <p>Эта страница поможет проверить, работает ли Snapchat Bot расширение.</p>
+        
+        <div id="status" class="status info">
+            Проверяем загрузку расширения...
+        </div>
+        
+        <div>
+            <button onclick="testBot()">Тест бота</button>
+            <button onclick="clearLogs()">Очистить логи</button>
+        </div>
+        
+        <div id="logs" class="log">
+            <div>Логи появятся здесь...</div>
+        </div>
+    </div>
+
+    <script>
+        let logContainer = document.getElementById('logs');
+        let statusDiv = document.getElementById('status');
+        
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            logEntry.style.color = type === 'error' ? '#dc3545' : type === 'success' ? '#28a745' : '#6c757d';
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function clearLogs() {
+            logContainer.innerHTML = '<div>Логи очищены...</div>';
+        }
+        
+        function updateStatus(message, type = 'info') {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        async function testBot() {
+            addLog('Начинаем тест бота...');
+            
+            try {
+                // Проверяем, что расширение доступно
+                if (typeof chrome === 'undefined' || !chrome.runtime) {
+                    throw new Error('Chrome extension API недоступен');
+                }
+                
+                addLog('✅ Chrome extension API доступен');
+                
+                // Тестируем подключение к background script
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({ action: 'getConfig' }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(response);
+                        }
+                    });
+                });
+                
+                if (response && response.success) {
+                    addLog('✅ Background script отвечает');
+                    addLog(`Конфигурация: ${JSON.stringify(response.config, null, 2)}`);
+                    
+                    if (response.config.botConfig && response.config.botConfig.isEnabled) {
+                        updateStatus('Бот включен и готов к работе!', 'success');
+                        addLog('✅ Бот включен в конфигурации');
+                    } else {
+                        updateStatus('Бот отключен в конфигурации', 'error');
+                        addLog('❌ Бот отключен в конфигурации');
+                    }
+                } else {
+                    throw new Error('Background script не ответил');
+                }
+                
+            } catch (error) {
+                addLog(`❌ Ошибка: ${error.message}`, 'error');
+                updateStatus(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+        
+        // Автоматический тест при загрузке
+        window.addEventListener('load', () => {
+            addLog('Страница загружена, начинаем тест...');
+            testBot();
+        });
+        
+        // Проверяем, что content script загружен
+        if (window.snapchatBotLoaded) {
+            addLog('✅ Content script загружен');
+        } else {
+            addLog('❌ Content script не загружен');
+        }
+    </script>
+</body>
+</html>

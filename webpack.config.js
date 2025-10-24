@@ -37,6 +37,7 @@ module.exports = {
         { from: 'src/popup.html', to: 'popup.html' },
         { from: 'src/admin.html', to: 'admin.html' },
         { from: 'src/gemini-test.html', to: 'gemini-test.html' },
+        { from: 'src/test.html', to: 'test.html' },
         { from: 'src/icons', to: 'icons' },
         { from: 'src/styles', to: 'styles' }
       ],

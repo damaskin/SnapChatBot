@@ -17,6 +17,8 @@ class SnapchatBot {
 
   constructor() {
     console.log('Snapchat Bot: Content script загружен на', window.location.href);
+    // Устанавливаем флаг загрузки для тестирования
+    (window as any).snapchatBotLoaded = true;
     this.detector = SnapchatDetector.getInstance();
     this.initialize();
   }
