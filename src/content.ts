@@ -29,6 +29,7 @@ class SnapchatBot {
   private readonly MIN_RESPONSE_INTERVAL_MS = 8_000;
   private readonly ANALYSIS_RATE_LIMIT_PER_MINUTE = 6;
   private readonly defaultExcludedUsers = ['my ai', 'team snapchat'];
+  private chatMetadata: Map<string, { id: string; title?: string | null }> = new Map();
 
   constructor() {
     console.log('Snapchat Bot: Content script загружен на', window.location.href);
@@ -237,8 +238,17 @@ class SnapchatBot {
       return;
     }
 
-    if (this.isChatExcluded(message.chatId)) {
-      console.log('Snapchat Bot: Пропускаем чат из списка исключений:', message.chatId);
+    const activeChatInfo = this.detector.getActiveChatInfo();
+    if (activeChatInfo) {
+      this.updateChatMetadata(activeChatInfo.chatId, activeChatInfo.title);
+    } else {
+      this.updateChatMetadata(message.chatId);
+    }
+
+    const knownTitle = this.getKnownChatTitle(message.chatId) || activeChatInfo?.title || null;
+
+    if (this.isChatExcluded(message.chatId) || (knownTitle && this.isChatExcluded(knownTitle))) {
+      console.log('Snapchat Bot: Пропускаем чат из списка исключений:', knownTitle || message.chatId);
       return;
     }
 
@@ -499,6 +509,38 @@ class SnapchatBot {
     }
 
     return this.getExcludedIdentifiers().includes(normalized);
+  }
+
+  private updateChatMetadata(chatId: string | undefined | null, title?: string | undefined | null): void {
+    const normalizedId = this.normalizeIdentifier(chatId);
+    const normalizedTitle = this.normalizeIdentifier(title);
+
+    if (normalizedId) {
+      const existing = this.chatMetadata.get(normalizedId) || { id: chatId ?? '', title: title ?? null };
+      this.chatMetadata.set(normalizedId, {
+        id: chatId ?? existing.id,
+        title: title ?? existing.title ?? null
+      });
+    }
+
+    if (normalizedTitle) {
+      const existingByTitle = this.chatMetadata.get(normalizedTitle) || { id: chatId ?? '', title: title ?? null };
+      this.chatMetadata.set(normalizedTitle, {
+        id: chatId ?? existingByTitle.id,
+        title: title ?? existingByTitle.title ?? null
+      });
+    }
+  }
+
+  private getKnownChatTitle(identifier: string | undefined | null): string | null {
+    const normalized = this.normalizeIdentifier(identifier);
+
+    if (!normalized) {
+      return null;
+    }
+
+    const metadata = this.chatMetadata.get(normalized);
+    return metadata?.title ?? null;
   }
 
   private enqueueChatResponse(chatId: string, lastMessageTimestamp?: number): number {
@@ -904,6 +946,8 @@ class SnapchatBot {
           continue;
         }
 
+        this.updateChatMetadata(chatItem.chatId, chatItem.title);
+
         if (this.shouldSkipChat(chatItem.chatId, chatItem.title)) {
           this.processedChats.add(normalizedListId);
           continue;
@@ -926,6 +970,9 @@ class SnapchatBot {
         const lastMessage = messages[messages.length - 1];
         const resolvedChatIdRaw = lastMessage?.chatId || chatItem.chatId || normalizedListId;
         const resolvedChatId = resolvedChatIdRaw || normalizedListId;
+
+        const resolvedTitle = chatItem.title || this.getKnownChatTitle(chatItem.chatId) || this.getKnownChatTitle(resolvedChatId);
+        this.updateChatMetadata(resolvedChatId, resolvedTitle);
 
         this.syncChatHistory(resolvedChatId, messages);
 

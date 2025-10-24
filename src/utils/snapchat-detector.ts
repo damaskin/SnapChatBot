@@ -415,17 +415,30 @@ export class SnapchatDetector {
 
       // Вводим текст
       inputElement.focus();
+
       if ('value' in inputElement) {
-        (inputElement as HTMLInputElement | HTMLTextAreaElement).value = text;
-      } else {
+        const inputField = inputElement as HTMLInputElement | HTMLTextAreaElement;
+        const prototype = Object.getPrototypeOf(inputField);
+        const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+        if (valueSetter) {
+          valueSetter.call(inputField, text);
+        } else {
+          inputField.value = text;
+        }
+      } else if (inputElement.isContentEditable) {
         inputElement.textContent = text;
+      } else {
+        (inputElement as HTMLElement).textContent = text;
       }
 
       // Триггерим события для React/Vue
-      const events = ['input', 'change', 'keyup'];
-      events.forEach(eventType => {
+      const inputEvent = new InputEvent('input', { bubbles: true, data: text });
+      inputElement.dispatchEvent(inputEvent);
+
+      ['change'].forEach(eventType => {
         const event = new Event(eventType, { bubbles: true });
-        inputElement!.dispatchEvent(event);
+        inputElement.dispatchEvent(event);
       });
 
       // Ищем кнопку отправки
@@ -454,14 +467,16 @@ export class SnapchatDetector {
         sendButton.click();
       } else {
         // Пробуем отправить через Enter
-        const enterEvent = new KeyboardEvent('keydown', {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          bubbles: true
+        ['keydown', 'keypress', 'keyup'].forEach(eventType => {
+          const event = new KeyboardEvent(eventType, {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true
+          });
+          inputElement.dispatchEvent(event);
         });
-        inputElement.dispatchEvent(enterEvent);
       }
 
       return true;
@@ -469,6 +484,13 @@ export class SnapchatDetector {
       console.error('Ошибка при отправке сообщения:', error);
       return false;
     }
+  }
+
+  getActiveChatInfo(): { chatId: string; title: string | null } {
+    return {
+      chatId: this.getCurrentChatId(),
+      title: this.getActiveChatTitle()
+    };
   }
 
   destroy(): void {
@@ -524,5 +546,28 @@ export class SnapchatDetector {
     }
 
     return `chat-${index}`;
+  }
+
+  private getActiveChatTitle(): string | null {
+    const containerSelectors = [
+      '[data-testid="conversation-header"]',
+      '[data-testid="chat-header"]',
+      '[data-testid="conversation-header-title"]',
+      '[data-testid="conversation-title"]',
+      'header',
+      '[role="banner"]'
+    ];
+
+    for (const selector of containerSelectors) {
+      const container = document.querySelector(selector);
+      if (container) {
+        const title = this.extractChatTitle(container);
+        if (title) {
+          return title;
+        }
+      }
+    }
+
+    return null;
   }
 }
