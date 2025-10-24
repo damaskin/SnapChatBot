@@ -63,16 +63,22 @@ class BackgroundService {
   }
 
   private setupListeners(): void {
+    console.log('Background: Настраиваем слушатели...');
+    
     // Слушаем установку расширения
     chrome.runtime.onInstalled.addListener((details) => {
+      console.log('Background: Расширение установлено/обновлено:', details.reason);
       this.handleInstall(details);
     });
 
     // Слушаем сообщения от content scripts и popup
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      console.log('Background: Получено сообщение:', request.action, 'от', sender.tab?.url || 'popup');
       this.handleMessage(request, sender, sendResponse);
       return true; // Асинхронный ответ
     });
+    
+    console.log('Background: Слушатели настроены успешно');
 
     // Слушаем изменения вкладок
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

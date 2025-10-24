@@ -206,21 +206,58 @@ class GeminiTestController {
       this.addLog('info', '🧠 Генерируем ответ через Gemini...');
       const startTime = Date.now();
       
-      const response = await geminiService.generateResponse(
-        [testMessage],
-        testAgent,
-        'Тестовый контекст чата'
-      );
+      // Используем прямой вызов API вместо сервиса
+      const prompt = `Ты - ИИ ассистент по имени ${testAgent.name}. Твоя личность: ${testAgent.personality}.
+      Системный промпт: ${testAgent.systemPrompt}
+      
+      Пользователь написал: "${message}"
+      
+      Ответь кратко и дружелюбно на русском языке.`;
+
+      const payload = {
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: geminiConfig.temperature || 0.7,
+          topK: geminiConfig.topK || 40,
+          topP: geminiConfig.topP || 0.95,
+          maxOutputTokens: geminiConfig.maxOutputTokens || 1000,
+        }
+      };
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': geminiConfig.apiKey
+      };
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiConfig.model}:generateContent`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(payload)
+      });
 
       const endTime = Date.now();
       const responseTime = endTime - startTime;
 
-      this.addLog('info', `✅ Ответ получен за ${responseTime}мс`);
-      this.addLog('info', `📥 Ответ: "${response}"`);
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        
+        this.addLog('info', `✅ Ответ получен за ${responseTime}мс`);
+        this.addLog('info', `📥 Ответ: "${content}"`);
 
-      // Отображаем ответ
-      document.getElementById('responseDisplay')!.textContent = response;
-      this.updateResponseStatus('success', `Ответ получен (${responseTime}мс)`);
+        // Отображаем ответ
+        document.getElementById('responseDisplay')!.textContent = content;
+        this.updateResponseStatus('success', `Ответ получен (${responseTime}мс)`);
+      } else {
+        const errorText = await response.text();
+        this.addLog('error', `❌ Ошибка Gemini API: ${response.status} - ${errorText}`);
+        document.getElementById('responseDisplay')!.textContent = `Ошибка: ${response.status} - ${errorText}`;
+        this.updateResponseStatus('error', 'Ошибка API');
+      }
 
     } catch (error) {
       this.updateResponseStatus('error', 'Ошибка генерации');

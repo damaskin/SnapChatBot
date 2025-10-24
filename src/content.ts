@@ -27,14 +27,37 @@ class SnapchatBot {
         return;
       }
       
+      // Ждем загрузки страницы
+      if (document.readyState !== 'complete') {
+        console.log('Snapchat Bot: Страница еще загружается, ждем...');
+        await new Promise(resolve => {
+          if (document.readyState === 'complete') {
+            resolve(void 0);
+          } else {
+            window.addEventListener('load', resolve);
+          }
+        });
+      }
+      
+      // Дополнительная задержка для загрузки React компонентов
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
       // Загружаем конфигурацию из storage
       await this.loadConfig();
       
-      // Инициализируем детектор
-      this.detector.initialize();
+      console.log('Snapchat Bot: Конфигурация загружена, isEnabled:', this.isEnabled);
       
-      // Подписываемся на события
-      this.setupEventListeners();
+      if (this.isEnabled) {
+        // Инициализируем детектор
+        this.detector.initialize();
+        
+        // Подписываемся на события
+        this.setupEventListeners();
+        
+        console.log('Snapchat Bot: Бот активирован и готов к работе');
+      } else {
+        console.log('Snapchat Bot: Бот отключен в конфигурации');
+      }
       
       console.log('Snapchat Bot: Инициализация завершена успешно');
     } catch (error) {
