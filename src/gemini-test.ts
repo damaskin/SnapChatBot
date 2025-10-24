@@ -96,17 +96,23 @@ class GeminiTestController {
       this.updateConnectionStatus('pending', 'Тестирование подключения...');
       this.addLog('info', 'Начинаем тест подключения к Gemini API');
 
+      const config = {
+        apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
+        model: 'gemini-1.5-flash',
+        maxOutputTokens: 1000,
+        temperature: 0.7,
+        topP: 0.95,
+        topK: 40
+      };
+
+      this.addLog('info', `📤 Отправляем запрос в background script с конфигурацией: ${JSON.stringify(config)}`);
+
       const response = await this.sendMessage({
         action: 'testGemini',
-        config: {
-          apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-          model: 'gemini-1.5-flash',
-          maxOutputTokens: 1000,
-          temperature: 0.7,
-          topP: 0.95,
-          topK: 40
-        }
+        config: config
       });
+
+      this.addLog('info', `📥 Получен ответ от background script: ${JSON.stringify(response)}`);
 
       if (response.success && response.result) {
         this.isConnected = true;

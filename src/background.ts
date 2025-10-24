@@ -160,7 +160,9 @@ class BackgroundService {
           break;
 
          case 'testGemini': {
+           console.log('Background: Получен запрос testGemini с конфигурацией:', request.config);
            const geminiResult = await this.testGeminiConnection(request.config);
+           console.log('Background: Результат тестирования Gemini:', geminiResult);
            sendResponse({ success: true, result: geminiResult });
            break;
          }
@@ -424,16 +426,21 @@ class BackgroundService {
 
    private async testGeminiConnection(config?: GeminiConfig): Promise<boolean> {
      try {
+       console.log('Background: Начинаем тестирование Gemini с конфигурацией:', config);
+       
        const { geminiService } = await import('./services/gemini');
+       console.log('Background: Gemini сервис импортирован');
 
        let effectiveConfig: GeminiConfig | null = null;
 
        if (config?.apiKey) {
          effectiveConfig = config;
+         console.log('Background: Используем переданную конфигурацию');
        } else {
          const storedConfig = await chrome.storage.sync.get('geminiConfig');
          if (storedConfig.geminiConfig) {
            effectiveConfig = storedConfig.geminiConfig as GeminiConfig;
+           console.log('Background: Используем сохраненную конфигурацию');
          }
        }
 
@@ -446,11 +453,21 @@ class BackgroundService {
            topP: 0.95,
            topK: 40
          };
+         console.log('Background: Используем конфигурацию по умолчанию');
        }
 
-       return await geminiService.testConnection(effectiveConfig);
+       console.log('Background: Инициализируем Gemini сервис с конфигурацией:', effectiveConfig);
+       // Инициализируем сервис с конфигурацией
+       geminiService.initialize(effectiveConfig);
+       
+       console.log('Background: Тестируем подключение к Gemini API');
+       // Тестируем подключение
+       const result = await geminiService.testConnection();
+       console.log('Background: Результат тестирования Gemini:', result);
+       
+       return result;
      } catch (error) {
-       console.error('Gemini test failed:', error);
+       console.error('Background: Gemini test failed:', error);
        return false;
      }
    }
