@@ -226,7 +226,7 @@ class AdminController {
     const geminiTopP = document.getElementById('geminiTopP') as HTMLInputElement;
     const geminiTopK = document.getElementById('geminiTopK') as HTMLInputElement;
 
-    if (geminiApiKey) geminiApiKey.value = config.geminiConfig?.apiKey || 'AIzaSyCsw62TajITcf8b5gmBB_9jLMA_xJfR28c';
+    if (geminiApiKey) geminiApiKey.value = config.geminiConfig?.apiKey || 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k';
     if (geminiModel) geminiModel.value = config.geminiConfig?.model || 'gemini-1.5-flash';
     if (geminiMaxTokens) geminiMaxTokens.value = (config.geminiConfig?.maxOutputTokens || 1000).toString();
     if (geminiTemperature) geminiTemperature.value = (config.geminiConfig?.temperature || 0.7).toString();
@@ -260,13 +260,16 @@ class AdminController {
   }
 
   private collectConfigData(): any {
+    const activeAgentId = this.getSelectedAgentId();
+
     return {
       botConfig: {
         isEnabled: (document.getElementById('botEnabled') as HTMLInputElement).checked,
         autoReply: (document.getElementById('autoReply') as HTMLInputElement).checked,
         responseDelay: parseInt((document.getElementById('responseDelay') as HTMLInputElement).value),
         keywords: this.getKeywords(),
-        excludedUsers: this.getExcludedUsers()
+        excludedUsers: this.getExcludedUsers(),
+        selectedAgentId: activeAgentId || null
       },
       firebaseConfig: {
         apiKey: (document.getElementById('firebaseApiKey') as HTMLInputElement)?.value || '',
@@ -338,18 +341,30 @@ class AdminController {
   private async testGeminiConnection(): Promise<void> {
     try {
       // Используем настройки по умолчанию
+      const geminiApiKey = document.getElementById('geminiApiKey') as HTMLInputElement;
+      const geminiModel = document.getElementById('geminiModel') as HTMLSelectElement;
+      const geminiMaxTokens = document.getElementById('geminiMaxTokens') as HTMLInputElement;
+      const geminiTemperature = document.getElementById('geminiTemperature') as HTMLInputElement;
+      const geminiTopP = document.getElementById('geminiTopP') as HTMLInputElement;
+      const geminiTopK = document.getElementById('geminiTopK') as HTMLInputElement;
+
+      if (!geminiApiKey || !geminiModel || !geminiMaxTokens || !geminiTemperature || !geminiTopP || !geminiTopK) {
+        this.showError('Элементы конфигурации Gemini не найдены');
+        return;
+      }
+
       const config = {
-        apiKey: 'AIzaSyCsw62TajITcf8b5gmBB_9jLMA_xJfR28c',
-        model: 'gemini-1.5-flash',
-        maxOutputTokens: 1000,
-        temperature: 0.7,
-        topP: 0.95,
-        topK: 40
+        apiKey: geminiApiKey.value,
+        model: geminiModel.value,
+        maxOutputTokens: parseInt(geminiMaxTokens.value || '1000', 10),
+        temperature: parseFloat(geminiTemperature.value || '0.7'),
+        topP: parseFloat(geminiTopP.value || '0.95'),
+        topK: parseInt(geminiTopK.value || '40', 10)
       };
 
-      const response = await this.sendMessage({ 
+      const response = await this.sendMessage({
         action: 'testGemini',
-        config 
+        config
       });
 
       if (response.success && response.result) {
@@ -435,8 +450,10 @@ class AdminController {
 
   private getKeywords(): string[] {
     const keywordsList = document.getElementById('keywordsList');
-    const items = keywordsList?.querySelectorAll('.keyword-item');
-    return Array.from(items || []).map(item => item.textContent?.trim() || '');
+    const items = keywordsList?.querySelectorAll<HTMLElement>('.keyword-item');
+    return Array.from(items || [])
+      .map(item => item.dataset.keyword?.trim())
+      .filter((keyword): keyword is string => Boolean(keyword));
   }
 
   private renderKeywords(keywords: string[]): void {
@@ -448,11 +465,11 @@ class AdminController {
           <button class="btn-remove" data-keyword="${keyword}">&times;</button>
         </div>
       `).join('');
-      
+
       // Добавляем обработчики событий
       container.querySelectorAll('.btn-remove').forEach(button => {
         button.addEventListener('click', (e) => {
-          const keyword = (e.target as HTMLElement).getAttribute('data-keyword');
+          const keyword = (e.currentTarget as HTMLElement).getAttribute('data-keyword');
           if (keyword) {
             this.removeKeywordFromList(keyword);
           }
@@ -484,8 +501,10 @@ class AdminController {
 
   private getExcludedUsers(): string[] {
     const usersList = document.getElementById('excludedUsersList');
-    const items = usersList?.querySelectorAll('.excluded-user-item');
-    return Array.from(items || []).map(item => item.textContent?.trim() || '');
+    const items = usersList?.querySelectorAll<HTMLElement>('.excluded-user-item');
+    return Array.from(items || [])
+      .map(item => item.dataset.user?.trim())
+      .filter((user): user is string => Boolean(user));
   }
 
   private renderExcludedUsers(users: string[]): void {
@@ -501,13 +520,18 @@ class AdminController {
       // Добавляем обработчики событий
       container.querySelectorAll('.btn-remove').forEach(button => {
         button.addEventListener('click', (e) => {
-          const user = (e.target as HTMLElement).getAttribute('data-user');
+          const user = (e.currentTarget as HTMLElement).getAttribute('data-user');
           if (user) {
             this.removeExcludedUserFromList(user);
           }
         });
       });
     }
+  }
+
+  private getSelectedAgentId(): string | undefined {
+    const activeAgent = this.agents.find(agent => agent.isActive);
+    return activeAgent?.id;
   }
 
   private showAgentModal(): void {
@@ -529,6 +553,7 @@ class AdminController {
     (document.getElementById('agentName') as HTMLInputElement).value = '';
     (document.getElementById('agentPersonality') as HTMLTextAreaElement).value = '';
     (document.getElementById('agentSystemPrompt') as HTMLTextAreaElement).value = '';
+    (document.getElementById('saveAgent') as HTMLElement).removeAttribute('data-agent-id');
   }
 
   private async saveAgent(): Promise<void> {
@@ -542,32 +567,65 @@ class AdminController {
         return;
       }
 
-      const agent: Omit<AIAgent, 'id'> = {
-        name,
-        personality,
-        systemPrompt,
-        isActive: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
+      const saveButton = document.getElementById('saveAgent') as HTMLElement;
+      const editingAgentId = saveButton.getAttribute('data-agent-id');
 
-      const response = await this.sendMessage({ 
-        action: 'createAgent', 
-        agent 
-      });
+      if (editingAgentId) {
+        const existingAgent = this.agents.find(agent => agent.id === editingAgentId);
 
-      if (response.success) {
-        this.showSuccess('Агент создан и активирован');
-        this.hideAgentModal();
-        await this.loadAgents();
-        // Обновляем UI после создания агента
-        this.updateSelectedAgentUI();
+        if (!existingAgent) {
+          this.showError('Агент не найден для обновления');
+          return;
+        }
+
+        const updatedAgent: AIAgent = {
+          ...existingAgent,
+          name,
+          personality,
+          systemPrompt,
+          updatedAt: Date.now()
+        };
+
+        const response = await this.sendMessage({
+          action: 'updateAgent',
+          agent: updatedAgent
+        });
+
+        if (response.success) {
+          this.showSuccess('Агент обновлен');
+          this.hideAgentModal();
+          await this.loadAgents();
+        } else {
+          throw new Error(response.error || 'Ошибка обновления агента');
+        }
       } else {
-        throw new Error(response.error || 'Ошибка создания агента');
+        const agent: Omit<AIAgent, 'id'> = {
+          name,
+          personality,
+          systemPrompt,
+          isActive: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+
+        const response = await this.sendMessage({
+          action: 'createAgent',
+          agent
+        });
+
+        if (response.success) {
+          this.showSuccess('Агент создан и активирован');
+          this.hideAgentModal();
+          await this.loadAgents();
+          // Обновляем UI после создания агента
+          this.updateSelectedAgentUI();
+        } else {
+          throw new Error(response.error || 'Ошибка создания агента');
+        }
       }
     } catch (error) {
       console.error('Failed to save agent:', error);
-      this.showError('Ошибка создания агента');
+      this.showError('Ошибка сохранения агента');
     }
   }
 
@@ -689,7 +747,7 @@ class AdminController {
       });
 
       if (response.success) {
-        this.showSuccess('Агент активирован');
+        this.showSuccess(response.isActive ? 'Агент активирован' : 'Агент деактивирован');
         await this.loadAgents();
       } else {
         throw new Error(response.error || 'Ошибка активации агента');

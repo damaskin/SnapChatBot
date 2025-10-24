@@ -48,7 +48,7 @@ class SnapchatBot {
       } else {
         // Инициализируем Gemini с настройками по умолчанию
         const defaultGeminiConfig = {
-          apiKey: 'AIzaSyCsw62TajITcf8b5gmBB_9jLMA_xJfR28c',
+          apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
           model: 'gemini-1.5-flash',
           maxOutputTokens: 1000,
           temperature: 0.7,
@@ -74,10 +74,24 @@ class SnapchatBot {
 
   private async loadAgent(agentId: string): Promise<void> {
     try {
-      const agents = await firebaseService.getAIAgents();
-      this.currentAgent = agents.find(agent => agent.id === agentId) || null;
+      const storedAgentsResult = await chrome.storage.sync.get('agents');
+      const storedAgents: AIAgent[] = storedAgentsResult.agents || [];
+
+      let agent = storedAgents.find(item => item.id === agentId) || null;
+
+      if (!agent) {
+        try {
+          const firebaseAgents = await firebaseService.getAIAgents();
+          agent = firebaseAgents.find(item => item.id === agentId) || null;
+        } catch (firebaseError) {
+          console.warn('Failed to load agent from Firebase, falling back to local storage only:', firebaseError);
+        }
+      }
+
+      this.currentAgent = agent;
     } catch (error) {
       console.error('Failed to load agent:', error);
+      this.currentAgent = null;
     }
   }
 
@@ -89,13 +103,20 @@ class SnapchatBot {
 
     // Слушаем изменения конфигурации
     chrome.storage.onChanged.addListener((changes, namespace) => {
-      if (namespace === 'sync') {
-        if (changes.botConfig) {
-          this.config = changes.botConfig.newValue;
-          this.isEnabled = this.config?.isEnabled || false;
-        }
-        if (changes.selectedAgentId) {
-          this.loadAgent(changes.selectedAgentId.newValue);
+      if (namespace === 'sync' && changes.botConfig) {
+        const previousConfig = this.config;
+        this.config = changes.botConfig.newValue as BotConfig | null;
+        this.isEnabled = this.config?.isEnabled || false;
+
+        const previousAgentId = previousConfig?.selectedAgentId || null;
+        const nextAgentId = this.config?.selectedAgentId || null;
+
+        if (previousAgentId !== nextAgentId) {
+          if (nextAgentId) {
+            this.loadAgent(nextAgentId);
+          } else {
+            this.currentAgent = null;
+          }
         }
       }
     });

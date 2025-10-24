@@ -44,7 +44,7 @@ class BackgroundService {
         console.log('No Gemini config found, initializing with default settings');
         const { geminiService } = await import('./services/gemini');
         const defaultGeminiConfig: GeminiConfig = {
-          apiKey: 'AIzaSyCsw62TajITcf8b5gmBB_9jLMA_xJfR28c',
+          apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
           model: 'gemini-1.5-flash',
           maxOutputTokens: 1000,
           temperature: 0.7,
@@ -159,10 +159,11 @@ class BackgroundService {
           sendResponse({ success: true, result: connectionResult });
           break;
 
-        case 'testGemini':
-          const geminiResult = await this.testGeminiConnection();
+        case 'testGemini': {
+          const geminiResult = await this.testGeminiConnection(request.config);
           sendResponse({ success: true, result: geminiResult });
           break;
+        }
 
         case 'exportData':
           const exportData = await this.exportData();
@@ -194,15 +195,25 @@ class BackgroundService {
           sendResponse({ success: true });
           break;
 
-        case 'toggleAgent':
-          await this.toggleAgent(request.agentId);
-          sendResponse({ success: true });
+        case 'toggleAgent': {
+          const isActive = await this.toggleAgent(request.agentId);
+          sendResponse({ success: true, isActive });
           break;
+        }
 
-        case 'toggleBot':
-          await this.toggleBot(request.isEnabled);
-          sendResponse({ success: true });
+        case 'toggleBot': {
+          const isEnabled = typeof request.isEnabled === 'boolean'
+            ? request.isEnabled
+            : request.enabled;
+
+          if (typeof isEnabled !== 'boolean') {
+            throw new Error('Invalid bot toggle state');
+          }
+
+          await this.toggleBot(isEnabled);
+          sendResponse({ success: true, isEnabled });
           break;
+        }
 
         default:
           sendResponse({ success: false, error: 'Unknown action' });
@@ -281,15 +292,24 @@ class BackgroundService {
 
   private async getConfig(): Promise<any> {
     const result = await chrome.storage.sync.get([
-      'botConfig', 
-      'firebaseConfig', 
-      'openaiConfig'
+      'botConfig',
+      'firebaseConfig',
+      'geminiConfig'
     ]);
     return result;
   }
 
   private async saveConfig(config: any): Promise<void> {
+    if (config?.botConfig && config.botConfig.selectedAgentId === null) {
+      delete config.botConfig.selectedAgentId;
+    }
+
     await chrome.storage.sync.set(config);
+
+    if (config?.geminiConfig) {
+      const { geminiService } = await import('./services/gemini');
+      geminiService.initialize(config.geminiConfig);
+    }
   }
 
   private async updateStatistics(update: any): Promise<void> {
@@ -396,25 +416,33 @@ class BackgroundService {
     return result;
   }
 
-  private async testGeminiConnection(): Promise<boolean> {
+  private async testGeminiConnection(config?: GeminiConfig): Promise<boolean> {
     try {
       const { geminiService } = await import('./services/gemini');
-      
-      // Используем настройки по умолчанию
-      const defaultConfig = {
-        apiKey: 'AIzaSyCsw62TajITcf8b5gmBB_9jLMA_xJfR28c',
-        model: 'gemini-1.5-flash',
-        maxOutputTokens: 1000,
-        temperature: 0.7,
-        topP: 0.95,
-        topK: 40
-      };
-      
-      // Инициализируем сервис с настройками по умолчанию
-      geminiService.initialize(defaultConfig);
-      
-      // Тестируем подключение
-      return await geminiService.testConnection();
+
+      let effectiveConfig: GeminiConfig | null = null;
+
+      if (config?.apiKey) {
+        effectiveConfig = config;
+      } else {
+        const storedConfig = await chrome.storage.sync.get('geminiConfig');
+        if (storedConfig.geminiConfig) {
+          effectiveConfig = storedConfig.geminiConfig as GeminiConfig;
+        }
+      }
+
+      if (!effectiveConfig) {
+        effectiveConfig = {
+          apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
+          model: 'gemini-1.5-flash',
+          maxOutputTokens: 1000,
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 40
+        };
+      }
+
+      return await geminiService.testConnection(effectiveConfig);
     } catch (error) {
       console.error('Gemini test failed:', error);
       return false;
@@ -438,6 +466,37 @@ class BackgroundService {
     }
   }
 
+  private async persistAgents(agents: AIAgent[]): Promise<void> {
+    await chrome.storage.sync.set({ agents });
+    await this.syncSelectedAgentFromAgents(agents);
+  }
+
+  private async syncSelectedAgentFromAgents(agents: AIAgent[]): Promise<void> {
+    const activeAgent = agents.find(agent => agent.isActive);
+    await this.updateSelectedAgentId(activeAgent ? activeAgent.id : null);
+  }
+
+  private async updateSelectedAgentId(agentId: string | null): Promise<void> {
+    const result = await chrome.storage.sync.get('botConfig');
+    const existingConfig = result.botConfig as BotConfig | undefined;
+
+    const botConfig: BotConfig = existingConfig ?? {
+      isEnabled: false,
+      autoReply: true,
+      responseDelay: 2000,
+      keywords: [],
+      excludedUsers: []
+    };
+
+    if (agentId) {
+      botConfig.selectedAgentId = agentId;
+    } else {
+      delete botConfig.selectedAgentId;
+    }
+
+    await chrome.storage.sync.set({ botConfig });
+  }
+
   // Методы для работы с агентами
   private async createAgent(agentData: Omit<AIAgent, 'id'>): Promise<void> {
     const agent: AIAgent = {
@@ -447,18 +506,25 @@ class BackgroundService {
 
     const result = await chrome.storage.sync.get('agents');
     const agents: AIAgent[] = result.agents || [];
-    
-    // Если это первый агент или нет активных агентов, активируем его
-    if (agents.length === 0 || !agents.some(a => a.isActive)) {
-      agent.isActive = true;
-      // Деактивируем всех остальных агентов
-      agents.forEach(a => a.isActive = false);
-    }
-    
-    agents.push(agent);
-    
-    await chrome.storage.sync.set({ agents });
-    console.log('Agent created:', agent.name, 'Active:', agent.isActive);
+
+    const shouldActivate = agent.isActive || agents.length === 0;
+    const timestamp = Date.now();
+
+    const updatedAgents = agents.map(existingAgent => {
+      if (shouldActivate && existingAgent.isActive) {
+        return { ...existingAgent, isActive: false, updatedAt: timestamp };
+      }
+      return existingAgent;
+    });
+
+    updatedAgents.push({
+      ...agent,
+      isActive: shouldActivate,
+      updatedAt: timestamp
+    });
+
+    await this.persistAgents(updatedAgents);
+    console.log('Agent created:', agent.name, 'Active:', shouldActivate);
   }
 
   private async getAgents(): Promise<AIAgent[]> {
@@ -470,10 +536,10 @@ class BackgroundService {
     const result = await chrome.storage.sync.get('agents');
     const agents: AIAgent[] = result.agents || [];
     const index = agents.findIndex(a => a.id === agent.id);
-    
+
     if (index !== -1) {
       agents[index] = { ...agent, updatedAt: Date.now() };
-      await chrome.storage.sync.set({ agents });
+      await this.persistAgents(agents);
       console.log('Agent updated:', agent.name);
     }
   }
@@ -482,32 +548,55 @@ class BackgroundService {
     const result = await chrome.storage.sync.get('agents');
     const agents: AIAgent[] = result.agents || [];
     const filteredAgents = agents.filter(a => a.id !== agentId);
-    
-    await chrome.storage.sync.set({ agents: filteredAgents });
+
+    await this.persistAgents(filteredAgents);
     console.log('Agent deleted:', agentId);
   }
 
-  private async toggleAgent(agentId: string): Promise<void> {
+  private async toggleAgent(agentId: string): Promise<boolean> {
     const result = await chrome.storage.sync.get('agents');
     const agents: AIAgent[] = result.agents || [];
-    const agent = agents.find(a => a.id === agentId);
-    
-    if (agent) {
-      // Деактивируем всех агентов
-      agents.forEach(a => a.isActive = false);
-      // Активируем выбранного агента
-      agent.isActive = true;
-      
-      await chrome.storage.sync.set({ agents });
-      console.log('Agent toggled:', agent.name, 'Active:', agent.isActive);
+    const targetAgent = agents.find(a => a.id === agentId);
+
+    if (!targetAgent) {
+      throw new Error('Agent not found');
     }
+
+    const shouldActivate = !targetAgent.isActive;
+
+    const updatedAgents = agents.map(agent => {
+      if (agent.id === agentId) {
+        return { ...agent, isActive: shouldActivate, updatedAt: Date.now() };
+      }
+
+      if (shouldActivate && agent.isActive) {
+        return { ...agent, isActive: false, updatedAt: Date.now() };
+      }
+
+      return agent;
+    });
+
+    await this.persistAgents(updatedAgents);
+    console.log('Agent toggled:', targetAgent.name, 'Active:', shouldActivate);
+
+    return shouldActivate;
   }
 
   private async toggleBot(isEnabled: boolean): Promise<void> {
     const result = await chrome.storage.sync.get('botConfig');
-    const config = result.botConfig || {};
+    const existingConfig = result.botConfig as BotConfig | undefined;
+    const config: BotConfig = existingConfig
+      ? { ...existingConfig }
+      : {
+        isEnabled,
+        autoReply: true,
+        responseDelay: 2000,
+        keywords: [],
+        excludedUsers: []
+      };
+
     config.isEnabled = isEnabled;
-    
+
     await chrome.storage.sync.set({ botConfig: config });
     console.log('Bot toggled:', isEnabled ? 'enabled' : 'disabled');
   }
