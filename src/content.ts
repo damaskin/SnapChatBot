@@ -241,28 +241,18 @@ class SnapchatBot {
     const activeChatInfo = this.detector.getActiveChatInfo();
     if (activeChatInfo) {
       this.updateChatMetadata(activeChatInfo.chatId, activeChatInfo.title);
+    } else {
+      this.updateChatMetadata(message.chatId);
     }
 
     const knownTitle = this.getKnownChatTitle(message.chatId) || activeChatInfo?.title || null;
-    const resolvedChatId = this.resolveChatIdentifier({
-      messageId: message.chatId,
-      activeId: activeChatInfo?.chatId,
-      title: knownTitle || activeChatInfo?.title || null
-    });
 
-    this.updateChatMetadata(resolvedChatId, knownTitle || activeChatInfo?.title);
-
-    if (this.isChatExcluded(resolvedChatId) || (knownTitle && this.isChatExcluded(knownTitle))) {
+    if (this.isChatExcluded(message.chatId) || (knownTitle && this.isChatExcluded(knownTitle))) {
       console.log('Snapchat Bot: Пропускаем чат из списка исключений:', knownTitle || message.chatId);
       return;
     }
 
-    const trackedMessage = {
-      ...message,
-      chatId: resolvedChatId
-    };
-
-    this.addMessageToHistory(trackedMessage);
+    this.addMessageToHistory(message);
 
     await this.updateStatistics({
       messageReceived: true,
@@ -270,15 +260,15 @@ class SnapchatBot {
     });
 
     try {
-      const shouldRespond = await this.shouldRespondToIncomingMessage(trackedMessage);
+      const shouldRespond = await this.shouldRespondToIncomingMessage(message);
 
       if (!shouldRespond) {
-        console.log('Snapchat Bot: Решено не отвечать на сообщение', resolvedChatId);
+        console.log('Snapchat Bot: Решено не отвечать на сообщение', message.chatId);
         return;
       }
 
-      const queueLength = this.enqueueChatResponse(resolvedChatId, trackedMessage.timestamp);
-      console.log('Snapchat Bot: Сообщение добавлено в очередь ответа', { chatId: resolvedChatId, queueLength });
+      const queueLength = this.enqueueChatResponse(message.chatId, message.timestamp);
+      console.log('Snapchat Bot: Сообщение добавлено в очередь ответа', { chatId: message.chatId, queueLength });
 
       await this.updateStatistics({
         queueLength,
@@ -433,13 +423,6 @@ class SnapchatBot {
           msg.isRead = true;
         });
 
-        this.addMessageToHistory({
-          text: response,
-          sender: 'user',
-          timestamp: Date.now(),
-          chatId
-        });
-
         const responseTimeMs = Date.now() - latestTimestamp;
         this.processedChats.add(this.normalizeIdentifier(chatId));
 
@@ -518,96 +501,21 @@ class SnapchatBot {
     return value.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').replace(/\s+/g, '').trim();
   }
 
-  private isUnknownIdentifier(value: string | undefined | null): boolean {
-    if (!value) {
-      return true;
-    }
-
-    const normalized = this.normalizeIdentifier(value);
-    return normalized.length === 0 || normalized === 'unknown';
-  }
-
-  private isUnknownNormalized(value: string): boolean {
-    return value.length === 0 || value === 'unknown';
-  }
-
   private isChatExcluded(identifier: string | undefined | null): boolean {
     const normalized = this.normalizeIdentifier(identifier);
 
-    if (!normalized || this.isUnknownNormalized(normalized)) {
+    if (!normalized) {
       return false;
     }
 
     return this.getExcludedIdentifiers().includes(normalized);
   }
 
-  private getKnownChatId(identifier: string | undefined | null): string | null {
-    const normalized = this.normalizeIdentifier(identifier);
-
-    if (!normalized) {
-      return null;
-    }
-
-    const metadata = this.chatMetadata.get(normalized);
-    if (!metadata) {
-      return null;
-    }
-
-    if (metadata.id && !this.isUnknownIdentifier(metadata.id)) {
-      return metadata.id;
-    }
-
-    if (metadata.title && !this.isUnknownIdentifier(metadata.title)) {
-      return metadata.title;
-    }
-
-    return null;
-  }
-
-  private resolveChatIdentifier(options: {
-    messageId?: string | null;
-    activeId?: string | null;
-    listId?: string | null;
-    title?: string | null;
-  }): string {
-    const candidates = [options.messageId, options.activeId, options.listId];
-
-    for (const candidate of candidates) {
-      if (candidate && !this.isUnknownIdentifier(candidate)) {
-        return candidate;
-      }
-
-      const known = this.getKnownChatId(candidate);
-      if (known && !this.isUnknownIdentifier(known)) {
-        return known;
-      }
-    }
-
-    if (options.title) {
-      const knownByTitle = this.getKnownChatId(options.title);
-      if (knownByTitle && !this.isUnknownIdentifier(knownByTitle)) {
-        return knownByTitle;
-      }
-
-      const normalizedTitle = this.normalizeIdentifier(options.title);
-      if (normalizedTitle) {
-        return normalizedTitle;
-      }
-    }
-
-    const fallback = candidates.find(candidate => !!candidate);
-    if (fallback) {
-      return fallback!;
-    }
-
-    return `chat-${Date.now()}`;
-  }
-
   private updateChatMetadata(chatId: string | undefined | null, title?: string | undefined | null): void {
     const normalizedId = this.normalizeIdentifier(chatId);
     const normalizedTitle = this.normalizeIdentifier(title);
 
-    if (normalizedId && !this.isUnknownNormalized(normalizedId)) {
+    if (normalizedId) {
       const existing = this.chatMetadata.get(normalizedId) || { id: chatId ?? '', title: title ?? null };
       this.chatMetadata.set(normalizedId, {
         id: chatId ?? existing.id,
@@ -615,7 +523,7 @@ class SnapchatBot {
       });
     }
 
-    if (normalizedTitle && !this.isUnknownNormalized(normalizedTitle)) {
+    if (normalizedTitle) {
       const existingByTitle = this.chatMetadata.get(normalizedTitle) || { id: chatId ?? '', title: title ?? null };
       this.chatMetadata.set(normalizedTitle, {
         id: chatId ?? existingByTitle.id,
@@ -1032,16 +940,15 @@ class SnapchatBot {
       const chatItems = this.detector.getChatListItems();
 
       for (const chatItem of chatItems) {
-        const resolvedListId = this.resolveChatIdentifier({ listId: chatItem.chatId, title: chatItem.title });
-        const normalizedListId = this.normalizeIdentifier(resolvedListId);
+        const normalizedListId = this.normalizeIdentifier(chatItem.chatId);
 
         if (this.processedChats.has(normalizedListId) || this.queuedChats.has(normalizedListId)) {
           continue;
         }
 
-        this.updateChatMetadata(resolvedListId, chatItem.title);
+        this.updateChatMetadata(chatItem.chatId, chatItem.title);
 
-        if (this.shouldSkipChat(resolvedListId, chatItem.title)) {
+        if (this.shouldSkipChat(chatItem.chatId, chatItem.title)) {
           this.processedChats.add(normalizedListId);
           continue;
         }
@@ -1074,6 +981,9 @@ class SnapchatBot {
         });
 
         const resolvedTitle = chatItem.title || activeChatInfo?.title || this.getKnownChatTitle(resolvedChatId);
+        this.updateChatMetadata(resolvedChatId, resolvedTitle);
+
+        const resolvedTitle = chatItem.title || this.getKnownChatTitle(chatItem.chatId) || this.getKnownChatTitle(resolvedChatId);
         this.updateChatMetadata(resolvedChatId, resolvedTitle);
 
         this.syncChatHistory(resolvedChatId, messages);

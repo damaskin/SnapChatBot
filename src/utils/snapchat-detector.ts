@@ -507,18 +507,9 @@ export class SnapchatDetector {
   }
 
   getActiveChatInfo(): { chatId: string; title: string | null } {
-    const chatId = this.getCurrentChatId();
-    const title = this.activeChatTitle ?? this.getActiveChatTitle();
-    if (title) {
-      this.activeChatTitle = title;
-    }
-    if (chatId && !/^unknown$/i.test(chatId)) {
-      this.activeChatId = chatId;
-    }
-
     return {
-      chatId,
-      title: title ?? null
+      chatId: this.getCurrentChatId(),
+      title: this.getActiveChatTitle()
     };
   }
 
@@ -589,16 +580,6 @@ export class SnapchatDetector {
     }
 
     return `chat-${index}`;
-  }
-
-  private setActiveChat(chatId?: string | null, title?: string | null): void {
-    if (chatId && !/^unknown$/i.test(chatId)) {
-      this.activeChatId = chatId;
-    }
-
-    if (title) {
-      this.activeChatTitle = title;
-    }
   }
 
   private getActiveChatTitle(): string | null {
