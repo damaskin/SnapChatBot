@@ -83,14 +83,6 @@ class AdminController {
       this.testGeminiConnection();
     });
 
-    document.getElementById('testHuggingFace')?.addEventListener('click', () => {
-      this.testHuggingFaceConnection();
-    });
-
-    // Переключение между API провайдерами
-    document.getElementById('aiProvider')?.addEventListener('change', (e) => {
-      this.switchAIProvider((e.target as HTMLSelectElement).value);
-    });
 
     // Управление ключевыми словами
     document.getElementById('addKeyword')?.addEventListener('click', () => {
