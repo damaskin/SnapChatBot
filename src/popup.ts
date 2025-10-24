@@ -244,6 +244,9 @@ class PopupController {
         this.updateElement('totalReplies', stats.totalReplies || 0);
         this.updateElement('activeChats', stats.activeChats || 0);
         this.updateElement('successRate', `${Math.round(stats.successRate || 0)}%`);
+        this.updateElement('pendingQueue', stats.queueLength ?? 0);
+        this.updateElement('totalErrors', stats.totalErrors ?? 0);
+        this.updateElement('lastResponse', this.formatTimestamp(stats.lastResponseAt));
       }
     } catch (error) {
       console.error('Failed to update statistics:', error);
@@ -255,6 +258,19 @@ class PopupController {
     if (element) {
       element.textContent = String(value);
     }
+  }
+
+  private formatTimestamp(timestamp?: number): string {
+    if (!timestamp) {
+      return '—';
+    }
+
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
   private showNotification(message: string): void {
