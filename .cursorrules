@@ -1,0 +1,83 @@
+# Snapchat AI Bot - Chrome Extension
+
+## Проект
+Это Chrome расширение для автоматического ответа на сообщения в Snapchat с помощью ИИ агентов.
+
+## Архитектура
+- **Content Script** (`src/content.ts`) - отслеживает сообщения в Snapchat
+- **Background Script** (`src/background.ts`) - управляет расширением
+- **Popup** (`src/popup.ts/html`) - интерфейс пользователя
+- **Admin Panel** (`src/admin.ts/html`) - админ панель для настройки
+- **Firebase** - хранение данных и статистики
+- **OpenAI** - генерация ответов ИИ
+
+## Ключевые компоненты
+
+### Типы (src/types/index.ts)
+- `ChatMessage` - структура сообщения
+- `ChatSession` - сессия чата
+- `AIAgent` - ИИ агент
+- `BotConfig` - конфигурация бота
+- `Statistics` - статистика
+
+### Сервисы
+- `FirebaseService` - работа с Firebase
+- `OpenAIService` - работа с OpenAI API
+- `SnapchatDetector` - отслеживание Snapchat
+
+### Основной функционал
+1. Отслеживание новых сообщений в Snapchat
+2. Анализ сообщений с помощью ИИ
+3. Генерация ответов через OpenAI
+4. Отправка ответов в чат
+5. Сохранение статистики в Firebase
+
+## Технологии
+- TypeScript
+- Chrome Extension API
+- Firebase (Firestore, Auth)
+- OpenAI API
+- Webpack для сборки
+
+## Структура файлов
+```
+src/
+├── types/           # TypeScript типы
+├── services/        # Сервисы (Firebase, OpenAI)
+├── utils/          # Утилиты (SnapchatDetector)
+├── components/     # UI компоненты
+├── styles/         # CSS стили
+├── content.ts      # Content script
+├── background.ts   # Background script
+├── popup.ts/html   # Popup интерфейс
+├── admin.ts/html   # Админ панель
+└── manifest.json   # Манифест расширения
+```
+
+## Правила разработки
+1. Используй TypeScript для всех файлов
+2. Следуй принципам Clean Architecture
+3. Разделяй логику на сервисы
+4. Используй async/await для асинхронных операций
+5. Обрабатывай ошибки везде
+6. Комментируй сложную логику
+7. Используй Chrome Extension API правильно
+8. Тестируй на реальном Snapchat
+
+## Особенности Snapchat
+- Используй селекторы для поиска элементов
+- Отслеживай изменения DOM через MutationObserver
+- Имитируй пользовательские действия для отправки сообщений
+- Учитывай задержки загрузки контента
+
+## Firebase структура
+- `chatSessions` - сессии чатов
+- `aiAgents` - ИИ агенты
+- `statistics` - статистика
+- `messages` - сообщения
+
+## OpenAI интеграция
+- Используй GPT-3.5-turbo или GPT-4
+- Настрой температуру и max_tokens
+- Обрабатывай ошибки API
+- Кэшируй ответы при необходимости
