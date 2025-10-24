@@ -94,8 +94,14 @@ class SnapchatBot {
         this.isEnabled = this.config?.isEnabled || false;
       }
 
-      if (result.geminiConfig) {
-        geminiService.initialize(result.geminiConfig);
+      if (result.geminiConfig && result.geminiConfig.apiKey) {
+        // Используем сохраненную конфигурацию, но принудительно устанавливаем правильную модель
+        const config = {
+          ...result.geminiConfig,
+          model: 'gemini-2.5-flash' // Принудительно используем правильную модель
+        };
+        geminiService.initialize(config);
+        console.log('Gemini initialized with saved config (model updated to gemini-2.5-flash)');
       } else {
         // Инициализируем Gemini с настройками по умолчанию
         const defaultGeminiConfig = {
@@ -205,6 +211,12 @@ class SnapchatBot {
     // Проверяем, нужно ли отвечать на это сообщение
     if (message.sender === 'user') {
       return; // Не отвечаем на свои сообщения
+    }
+
+    // Фильтруем системные сообщения
+    if (this.isSystemMessage(message.text)) {
+      console.log('Snapchat Bot: Пропускаем системное сообщение:', message.text);
+      return;
     }
 
     // Проверяем исключенных пользователей
@@ -585,6 +597,32 @@ class SnapchatBot {
     }
 
     this.chatSessions.set(chatId, updatedHistory);
+  }
+
+  private isSystemMessage(text: string): boolean {
+    const systemMessages = [
+      'Ask My AI',
+      'Click to install',
+      'to always have access',
+      'Click the Camera to send Snaps',
+      'Create Bitmoji',
+      'No Stories',
+      'Spotlight',
+      'Snapchat',
+      'Welcome to Snapchat',
+      'Get started',
+      'Install',
+      'Download',
+      'Update',
+      'New feature',
+      'Try it now'
+    ];
+    
+    const lowerText = text.toLowerCase();
+    return systemMessages.some(msg => lowerText.includes(msg.toLowerCase())) || 
+           text.length < 3 || 
+           /^[.,!?]+$/.test(text) ||
+           /^[A-Z\s]+$/.test(text);
   }
 }
 
