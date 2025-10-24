@@ -8,6 +8,8 @@ export class SnapchatDetector {
   private static instance: SnapchatDetector;
   private observers: MutationObserver[] = [];
   private isInitialized = false;
+  private activeChatId: string | null = null;
+  private activeChatTitle: string | null = null;
 
   static getInstance(): SnapchatDetector {
     if (!SnapchatDetector.instance) {
@@ -117,7 +119,7 @@ export class SnapchatDetector {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const element = node as Element;
         const messages = this.extractMessagesFromElement(element);
-        
+
         messages.forEach(message => {
           this.processNewMessage(message);
         });
@@ -165,7 +167,8 @@ export class SnapchatDetector {
     ];
 
     let messageElements: NodeListOf<Element> | null = null;
-    
+    const activeChatId = this.getCurrentChatId();
+
     for (const selector of messageSelectors) {
       messageElements = element.querySelectorAll(selector);
       if (messageElements.length > 0) {
@@ -185,10 +188,10 @@ export class SnapchatDetector {
       if (text && text.length > 0) {
         const sender = this.determineSender(msgEl);
         const timestamp = this.extractTimestamp(msgEl);
-        const chatId = this.getCurrentChatId();
+        const chatId = activeChatId || this.getCurrentChatId();
 
         console.log(`SnapchatDetector: Найдено сообщение: "${text}" от ${sender}`);
-        
+
         messages.push({
           text,
           sender,
@@ -272,13 +275,22 @@ export class SnapchatDetector {
     const url = window.location.href;
     const chatIdMatch = url.match(/chat\/([^\/]+)/);
     if (chatIdMatch) {
-      return chatIdMatch[1];
+      this.activeChatId = chatIdMatch[1];
+      return this.activeChatId;
     }
 
     // Альтернативный способ - из атрибутов страницы
     const chatIdEl = document.querySelector('[data-chat-id]');
     if (chatIdEl) {
-      return chatIdEl.getAttribute('data-chat-id') || 'unknown';
+      const id = chatIdEl.getAttribute('data-chat-id');
+      if (id && !/^unknown$/i.test(id)) {
+        this.activeChatId = id;
+        return id;
+      }
+    }
+
+    if (this.activeChatId && !/^unknown$/i.test(this.activeChatId)) {
+      return this.activeChatId;
     }
 
     return 'unknown';
@@ -324,7 +336,7 @@ export class SnapchatDetector {
         if (!items.has(element)) {
           const title = this.extractChatTitle(element);
           const rawId = this.extractChatIdentifier(element);
-          const chatId = rawId || this.createChatIdFromTitle(title, index);
+          const chatId = this.buildStableChatId(rawId, title, index);
 
           items.set(element, {
             element,
@@ -340,9 +352,13 @@ export class SnapchatDetector {
     return Array.from(items.values());
   }
 
-  async openChat(element: Element): Promise<void> {
+  async openChat(element: Element, context?: { chatId?: string; title?: string | null }): Promise<void> {
     const clickable = (element.querySelector('a, button, [role="link"], [data-testid*="conversation"]') as HTMLElement) ||
       (element as HTMLElement);
+
+    const derivedTitle = context?.title ?? this.extractChatTitle(element);
+    const derivedId = this.buildStableChatId(context?.chatId ?? this.extractChatIdentifier(element), derivedTitle, Date.now());
+    this.setActiveChat(derivedId, derivedTitle);
 
     ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, view: window });
@@ -360,6 +376,10 @@ export class SnapchatDetector {
       if (container) {
         const hasMessages = container.querySelectorAll('div, span, p').length > 0;
         if (hasMessages) {
+          const title = this.getActiveChatTitle();
+          if (title) {
+            this.activeChatTitle = title;
+          }
           return true;
         }
       }
@@ -497,6 +517,8 @@ export class SnapchatDetector {
     this.observers.forEach(observer => observer.disconnect());
     this.observers = [];
     this.isInitialized = false;
+    this.activeChatId = null;
+    this.activeChatTitle = null;
   }
 
   private extractChatTitle(element: Element): string {
@@ -540,9 +562,21 @@ export class SnapchatDetector {
     return null;
   }
 
-  private createChatIdFromTitle(title: string, index: number): string {
-    if (title) {
-      return `${title.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, '-')}-${index}`;
+  private buildStableChatId(rawId: string | null | undefined, title: string, index: number): string {
+    const trimmedRaw = rawId?.trim();
+    if (trimmedRaw && !/^unknown$/i.test(trimmedRaw)) {
+      return trimmedRaw;
+    }
+
+    const normalizedTitle = title
+      ? title
+          .toLowerCase()
+          .replace(/[^a-z0-9а-яё]+/gi, '-')
+          .replace(/^-+|-+$/g, '')
+      : '';
+
+    if (normalizedTitle) {
+      return normalizedTitle;
     }
 
     return `chat-${index}`;
