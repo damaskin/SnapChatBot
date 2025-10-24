@@ -35,7 +35,7 @@ class GeminiTestController {
         // Используем настройки по умолчанию
         const defaultConfig = {
           apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.5-flash',
           maxOutputTokens: 1000,
           temperature: 0.7,
           topP: 0.95,
@@ -53,7 +53,7 @@ class GeminiTestController {
   private updateConfigDisplay(config: any): void {
     const geminiConfig = config.geminiConfig || {
       apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       maxOutputTokens: 1000,
       temperature: 0.7,
       topP: 0.95,
@@ -107,7 +107,7 @@ class GeminiTestController {
 
       const config = {
         apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         maxOutputTokens: 1000,
         temperature: 0.7,
         topP: 0.95,
@@ -193,7 +193,7 @@ class GeminiTestController {
       // Инициализируем Gemini сервис
       const geminiConfig: GeminiConfig = {
         apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         maxOutputTokens: 1000,
         temperature: 0.7,
         topP: 0.95,

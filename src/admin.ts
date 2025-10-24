@@ -219,7 +219,7 @@ class AdminController {
     const geminiTopK = document.getElementById('geminiTopK') as HTMLInputElement;
 
     if (geminiApiKey) geminiApiKey.value = config.geminiConfig?.apiKey || 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k';
-    if (geminiModel) geminiModel.value = config.geminiConfig?.model || 'gemini-1.5-flash';
+    if (geminiModel) geminiModel.value = config.geminiConfig?.model || 'gemini-2.5-flash';
     if (geminiMaxTokens) geminiMaxTokens.value = (config.geminiConfig?.maxOutputTokens || 1000).toString();
     if (geminiTemperature) geminiTemperature.value = (config.geminiConfig?.temperature || 0.7).toString();
     if (geminiTopP) geminiTopP.value = (config.geminiConfig?.topP || 0.8).toString();
@@ -335,7 +335,7 @@ class AdminController {
        // Используем настройки по умолчанию
        const config = {
          apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-         model: 'gemini-1.5-flash',
+         model: 'gemini-2.5-flash',
          maxOutputTokens: 1000,
          temperature: 0.7,
          topP: 0.95,

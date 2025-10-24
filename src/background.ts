@@ -45,7 +45,7 @@ class BackgroundService {
         const { geminiService } = await import('./services/gemini');
         const defaultGeminiConfig: GeminiConfig = {
           apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.5-flash',
           maxOutputTokens: 1000,
           temperature: 0.7,
           topP: 0.95,
@@ -447,7 +447,7 @@ class BackgroundService {
        if (!effectiveConfig) {
          effectiveConfig = {
            apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
-           model: 'gemini-1.5-flash',
+           model: 'gemini-2.5-flash',
            maxOutputTokens: 1000,
            temperature: 0.7,
            topP: 0.95,
