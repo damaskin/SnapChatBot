@@ -96,6 +96,15 @@ class GeminiTestController {
       this.updateConnectionStatus('pending', 'Тестирование подключения...');
       this.addLog('info', 'Начинаем тест подключения к Gemini API');
 
+      // Проверяем, что Chrome extension доступен
+      if (!chrome.runtime || !chrome.runtime.sendMessage) {
+        this.addLog('error', '❌ Chrome extension API недоступен');
+        this.updateConnectionStatus('error', 'Chrome extension API недоступен');
+        return;
+      }
+
+      this.addLog('info', '✅ Chrome extension API доступен');
+
       const config = {
         apiKey: 'AIzaSyB1fsG5NFKa7uMl50JrcToCO-fhJNPIV_k',
         model: 'gemini-1.5-flash',
@@ -119,9 +128,20 @@ class GeminiTestController {
         this.updateConnectionStatus('success', 'Подключение успешно!');
         this.addLog('info', '✅ Подключение к Gemini API установлено');
       } else {
-        this.isConnected = false;
-        this.updateConnectionStatus('error', 'Ошибка подключения');
-        this.addLog('error', `❌ Ошибка подключения: ${response.error || 'Неизвестная ошибка'}`);
+        this.addLog('warning', '⚠️ Background script не ответил, пробуем прямое подключение к API');
+        
+        // Пробуем прямое подключение к Gemini API
+        const directResult = await this.testDirectConnection(config);
+        
+        if (directResult) {
+          this.isConnected = true;
+          this.updateConnectionStatus('success', 'Прямое подключение успешно!');
+          this.addLog('info', '✅ Прямое подключение к Gemini API установлено');
+        } else {
+          this.isConnected = false;
+          this.updateConnectionStatus('error', 'Ошибка подключения');
+          this.addLog('error', `❌ Ошибка подключения: ${response.error || 'Неизвестная ошибка'}`);
+        }
       }
     } catch (error) {
       this.isConnected = false;
@@ -262,12 +282,72 @@ class GeminiTestController {
     this.updateResponseStatus('pending', 'Готов к генерации ответа');
   }
 
+  private async testDirectConnection(config: any): Promise<boolean> {
+    try {
+      this.addLog('info', '🔗 Тестируем прямое подключение к Gemini API');
+      
+      const payload = {
+        contents: [{
+          parts: [{
+            text: 'Hello, this is a test connection to Gemini API.'
+          }]
+        }],
+        generationConfig: {
+          temperature: config.temperature || 0.7,
+          topK: config.topK || 40,
+          topP: config.topP || 0.95,
+          maxOutputTokens: config.maxOutputTokens || 1000,
+        }
+      };
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': config.apiKey
+      };
+
+      this.addLog('info', `📡 Отправляем запрос к Gemini API: ${config.model}`);
+      
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(payload)
+      });
+
+      this.addLog('info', `📥 Получен ответ от Gemini API: ${response.status} ${response.statusText}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        this.addLog('info', `✅ Gemini API ответил успешно: ${JSON.stringify(data).substring(0, 100)}...`);
+        return true;
+      } else {
+        const errorText = await response.text();
+        this.addLog('error', `❌ Gemini API ошибка: HTTP ${response.status} - ${response.statusText} - ${errorText}`);
+        return false;
+      }
+    } catch (error) {
+      this.addLog('error', `❌ Ошибка прямого подключения: ${error}`);
+      return false;
+    }
+  }
+
   private async sendMessage(message: any): Promise<any> {
     return new Promise((resolve) => {
+      this.addLog('info', `🔄 Отправляем сообщение: ${JSON.stringify(message)}`);
+      
+      // Добавляем таймаут
+      const timeout = setTimeout(() => {
+        this.addLog('error', '⏰ Таймаут ожидания ответа от background script (10 секунд)');
+        resolve({ success: false, error: 'Timeout waiting for response' });
+      }, 10000);
+
       chrome.runtime.sendMessage(message, (response) => {
+        clearTimeout(timeout);
+        
         if (chrome.runtime.lastError) {
+          this.addLog('error', `❌ Ошибка Chrome runtime: ${chrome.runtime.lastError.message}`);
           resolve({ success: false, error: chrome.runtime.lastError.message });
         } else {
+          this.addLog('info', `📥 Получен ответ: ${JSON.stringify(response)}`);
           resolve(response || { success: false, error: 'No response' });
         }
       });
