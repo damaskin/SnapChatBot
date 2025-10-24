@@ -92,12 +92,24 @@ class PopupController {
 
   private async toggleBot(enabled: boolean): Promise<void> {
     try {
-      const response = await this.sendMessage({ 
-        action: 'toggleBot', 
-        enabled 
+      const response = await this.sendMessage({
+        action: 'toggleBot',
+        isEnabled: enabled
       });
-      
+
       if (response.success) {
+        if (!this.config) {
+          this.config = {
+            isEnabled: enabled,
+            autoReply: true,
+            responseDelay: 2000,
+            keywords: [],
+            excludedUsers: []
+          };
+        } else {
+          this.config.isEnabled = enabled;
+        }
+
         this.updateStatusIndicator(enabled);
         this.showNotification(
           enabled ? 'Бот включен' : 'Бот выключен'
@@ -227,9 +239,10 @@ class PopupController {
       const response = await this.sendMessage({ action: 'getStatistics' });
       if (response.success && response.statistics) {
         const stats = response.statistics;
-        
+
         this.updateElement('totalMessages', stats.totalMessages || 0);
         this.updateElement('totalReplies', stats.totalReplies || 0);
+        this.updateElement('activeChats', stats.activeChats || 0);
         this.updateElement('successRate', `${Math.round(stats.successRate || 0)}%`);
       }
     } catch (error) {
