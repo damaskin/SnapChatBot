@@ -469,55 +469,59 @@ export class SnapchatDetector {
   }
 
   // Методы для отправки сообщений
-  private locateComposerElements(): { input: HTMLElement | null; composer: HTMLElement | null } {
-    const candidateInputs = Array.from(document.querySelectorAll<HTMLElement>(
-      '[placeholder], [data-testid], [contenteditable="true"], textarea, input'
-    ));
+  async sendMessage(text: string): Promise<boolean> {
+    try {
+      const candidateInputs = Array.from(document.querySelectorAll<HTMLElement>(
+        '[placeholder], [data-testid], [contenteditable="true"], textarea, input'
+      ));
 
-    const inputElement = candidateInputs.find((element) => {
-      const placeholder = (element.getAttribute('placeholder') || '').toLowerCase();
-      const dataTestId = (element.getAttribute('data-testid') || '').toLowerCase();
-      const role = (element.getAttribute('role') || '').toLowerCase();
+      const inputElement = candidateInputs.find((element) => {
+        const placeholder = (element.getAttribute('placeholder') || '').toLowerCase();
+        const dataTestId = (element.getAttribute('data-testid') || '').toLowerCase();
+        const role = (element.getAttribute('role') || '').toLowerCase();
 
-      if (placeholder.includes('search')) {
+        if (placeholder.includes('search')) {
+          return false;
+        }
+
+        if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
+          return true;
+        }
+
+        if (dataTestId.includes('chat-input') || dataTestId.includes('composer') || dataTestId.includes('message-input')) {
+          return true;
+        }
+
+        if (role === 'textbox' && element.isContentEditable) {
+          const composer = element.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h');
+          return !!composer;
+        }
+
+        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+          return element.type === 'text' || element.tagName.toLowerCase() === 'textarea';
+        }
+
         return false;
-      }
+      });
 
       if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
         return true;
       }
 
-      if (dataTestId.includes('chat-input') || dataTestId.includes('composer') || dataTestId.includes('message-input')) {
-        return true;
-      }
+      inputElement.focus();
 
-      if (role === 'textbox' && element.isContentEditable) {
-        const composerElement = element.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h');
-        return !!composerElement;
-      }
-
-      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-        return element.type === 'text' || element.tagName.toLowerCase() === 'textarea';
-      }
-
-      return false;
-    }) || null;
-
-    const composer = inputElement
-      ? inputElement.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h, form, [role="form"]') as HTMLElement | null
-      : null;
-
-    return { input: inputElement, composer };
-  }
-
-  private applyTextToInput(inputElement: HTMLElement, text: string): void {
-    if (inputElement instanceof HTMLInputElement || inputElement instanceof HTMLTextAreaElement) {
-      const prototype = Object.getPrototypeOf(inputElement);
-      const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-      if (valueSetter) {
-        valueSetter.call(inputElement, text);
+      if (inputElement instanceof HTMLInputElement || inputElement instanceof HTMLTextAreaElement) {
+        const prototype = Object.getPrototypeOf(inputElement);
+        const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+        if (valueSetter) {
+          valueSetter.call(inputElement, text);
+        } else {
+          inputElement.value = text;
+        }
+      } else if (inputElement.isContentEditable) {
+        inputElement.textContent = text;
       } else {
-        inputElement.value = text;
+        inputElement.textContent = text;
       }
     } else if (inputElement.isContentEditable) {
       inputElement.textContent = text;
@@ -526,29 +530,18 @@ export class SnapchatDetector {
     }
   }
 
-  async fillMessageInput(text: string): Promise<{ success: boolean; composer: HTMLElement | null; input: HTMLElement | null }> {
-    try {
-      const { input, composer } = this.locateComposerElements();
-
-      if (!input) {
-        console.error('Не найдено поле ввода сообщения');
-        return { success: false, composer: null, input: null };
-      }
-
-      input.focus();
-      this.applyTextToInput(input, text);
-
       const inputEvent = new InputEvent('input', { bubbles: true, data: text });
-      input.dispatchEvent(inputEvent);
+      inputElement.dispatchEvent(inputEvent);
       const changeEvent = new Event('change', { bubbles: true });
-      input.dispatchEvent(changeEvent);
+      inputElement.dispatchEvent(changeEvent);
 
-      return { success: true, composer, input };
-    } catch (error) {
-      console.error('Ошибка при заполнении поля ввода:', error);
-      return { success: false, composer: null, input: null };
-    }
-  }
+      const composer = inputElement.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h, form, [role="form"]');
+      const sendButtonSelectors = [
+        '[data-testid="send-button"]',
+        'button[data-testid*="send"]',
+        'button[aria-label*="send" i]',
+        'button[type="submit"]'
+      ];
 
   private findSendButton(composer: HTMLElement | null): HTMLButtonElement | null {
     const sendButtonSelectors = [
@@ -558,43 +551,33 @@ export class SnapchatDetector {
       'button[type="submit"]'
     ];
 
-    if (composer) {
-      for (const selector of sendButtonSelectors) {
-        const found = composer.querySelector(selector) as HTMLButtonElement | null;
-        if (found) {
-          return found;
-        }
-      }
-
-      const possibleButtons = Array.from(composer.querySelectorAll('button')) as HTMLButtonElement[];
-      const fallback = possibleButtons.find((button) => {
-        if (!button.offsetParent) {
-          return false;
+      if (composer) {
+        for (const selector of sendButtonSelectors) {
+          const found = composer.querySelector(selector) as HTMLButtonElement | null;
+          if (found) {
+            sendButton = found;
+            break;
+          }
         }
 
-        const label = (button.getAttribute('aria-label') || '').toLowerCase();
-        if (label.includes('attach') || label.includes('emoji') || label.includes('sticker')) {
-          return false;
+        if (!sendButton) {
+          const possibleButtons = Array.from(composer.querySelectorAll('button')) as HTMLButtonElement[];
+          sendButton = possibleButtons.find((button) => {
+            if (!button.offsetParent) {
+              return false;
+            }
+            const label = (button.getAttribute('aria-label') || '').toLowerCase();
+            if (label.includes('attach') || label.includes('emoji') || label.includes('sticker')) {
+              return false;
+            }
+            const hasArrowSvg = button.querySelector('svg path[d*="13.536"], svg path[d*="M13.5"], svg.zfQr6');
+            if (hasArrowSvg) {
+              return true;
+            }
+            const textContent = (button.textContent || '').trim();
+            return textContent.length === 0;
+          }) || null;
         }
-
-        const hasArrowSvg = button.querySelector('svg path[d*="13.536"], svg path[d*="M13.5"], svg.zfQr6');
-        if (hasArrowSvg) {
-          return true;
-        }
-
-        const textContent = (button.textContent || '').trim();
-        return textContent.length === 0;
-      }) || null;
-
-      if (fallback) {
-        return fallback;
-      }
-    }
-
-    for (const selector of sendButtonSelectors) {
-      const found = document.querySelector(selector) as HTMLButtonElement | null;
-      if (found && (!composer || composer.contains(found))) {
-        return found;
       }
     }
 
@@ -605,8 +588,14 @@ export class SnapchatDetector {
     try {
       const { success, composer, input } = await this.fillMessageInput(text);
 
-      if (!success || !input) {
-        return false;
+      if (!sendButton) {
+        for (const selector of sendButtonSelectors) {
+          const found = document.querySelector(selector) as HTMLButtonElement | null;
+          if (found && (!composer || composer.contains(found))) {
+            sendButton = found;
+            break;
+          }
+        }
       }
 
       const sendButton = this.findSendButton(composer);
