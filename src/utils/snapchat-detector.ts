@@ -504,9 +504,8 @@ export class SnapchatDetector {
         return false;
       });
 
-      if (!inputElement) {
-        console.error('Не найдено поле ввода сообщения');
-        return false;
+      if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
+        return true;
       }
 
       inputElement.focus();
@@ -524,6 +523,12 @@ export class SnapchatDetector {
       } else {
         inputElement.textContent = text;
       }
+    } else if (inputElement.isContentEditable) {
+      inputElement.textContent = text;
+    } else {
+      inputElement.textContent = text;
+    }
+  }
 
       const inputEvent = new InputEvent('input', { bubbles: true, data: text });
       inputElement.dispatchEvent(inputEvent);
@@ -538,7 +543,13 @@ export class SnapchatDetector {
         'button[type="submit"]'
       ];
 
-      let sendButton: HTMLButtonElement | null = null;
+  private findSendButton(composer: HTMLElement | null): HTMLButtonElement | null {
+    const sendButtonSelectors = [
+      '[data-testid="send-button"]',
+      'button[data-testid*="send"]',
+      'button[aria-label*="send" i]',
+      'button[type="submit"]'
+    ];
 
       if (composer) {
         for (const selector of sendButtonSelectors) {
@@ -568,6 +579,14 @@ export class SnapchatDetector {
           }) || null;
         }
       }
+    }
+
+    return null;
+  }
+
+  async sendMessage(text: string): Promise<boolean> {
+    try {
+      const { success, composer, input } = await this.fillMessageInput(text);
 
       if (!sendButton) {
         for (const selector of sendButtonSelectors) {
@@ -578,6 +597,8 @@ export class SnapchatDetector {
           }
         }
       }
+
+      const sendButton = this.findSendButton(composer);
 
       if (sendButton) {
         ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((eventType) => {
@@ -593,7 +614,7 @@ export class SnapchatDetector {
             which: 13,
             bubbles: true
           });
-          inputElement.dispatchEvent(event);
+          input.dispatchEvent(event);
         });
       }
 
