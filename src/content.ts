@@ -285,7 +285,7 @@ class SnapchatBot {
     if (activeChatInfo) {
       this.updateChatMetadata(activeChatInfo.chatId, activeChatInfo.title);
     } else {
-      this.updateChatMetadata(message.chatId);
+      this.updateChatMetadata(message.chatId, null);
     }
 
     const knownTitle = this.getKnownChatTitle(message.chatId) || activeChatInfo?.title || null;
@@ -554,37 +554,7 @@ class SnapchatBot {
     return this.getExcludedIdentifiers().includes(normalized);
   }
 
-  private updateChatMetadata(chatId: string | undefined | null, title?: string | undefined | null): void {
-    const normalizedId = this.normalizeIdentifier(chatId);
-    const normalizedTitle = this.normalizeIdentifier(title);
 
-    if (normalizedId) {
-      const existing = this.chatMetadata.get(normalizedId) || { id: chatId ?? '', title: title ?? null };
-      this.chatMetadata.set(normalizedId, {
-        id: chatId ?? existing.id,
-        title: title ?? existing.title ?? null
-      });
-    }
-
-    if (normalizedTitle) {
-      const existingByTitle = this.chatMetadata.get(normalizedTitle) || { id: chatId ?? '', title: title ?? null };
-      this.chatMetadata.set(normalizedTitle, {
-        id: chatId ?? existingByTitle.id,
-        title: title ?? existingByTitle.title ?? null
-      });
-    }
-  }
-
-  private getKnownChatTitle(identifier: string | undefined | null): string | null {
-    const normalized = this.normalizeIdentifier(identifier);
-
-    if (!normalized) {
-      return null;
-    }
-
-    const metadata = this.chatMetadata.get(normalized);
-    return metadata?.title ?? null;
-  }
 
   private enqueueChatResponse(chatId: string, lastMessageTimestamp?: number): number {
     const normalizedId = this.normalizeIdentifier(chatId);
@@ -1430,26 +1400,6 @@ class SnapchatBot {
     this.chatSessions.set(chatId, updatedHistory);
   }
 
-  private hasUnansweredMessage(chatId: string): boolean {
-    const history = this.chatSessions.get(chatId) || [];
-
-    if (history.length === 0) {
-      return false;
-    }
-
-    const lastIncoming = [...history].reverse().find(message => message.sender === 'other');
-    if (!lastIncoming) {
-      return false;
-    }
-
-    const lastOutgoing = [...history].reverse().find(message => message.sender === 'user');
-
-    if (!lastOutgoing) {
-      return true;
-    }
-
-    return lastIncoming.timestamp >= lastOutgoing.timestamp;
-  }
 
   private isSystemMessage(text: string): boolean {
     const systemMessages = [
@@ -1486,6 +1436,20 @@ class SnapchatBot {
            /^[.,!?]+$/.test(text) ||
            /^[A-Z\s]+$/.test(text) ||
            /^(now|typing|online|offline|seen|delivered|sent)$/i.test(lowerText);
+  }
+
+  private getKnownChatTitle(chatId: string): string | null {
+    const metadata = this.chatMetadata.get(chatId);
+    return metadata?.title || null;
+  }
+
+  private updateChatMetadata(chatId: string, title: string | null): void {
+    this.chatMetadata.set(chatId, { id: chatId, title });
+  }
+
+  private hasUnansweredMessage(chatId: string): boolean {
+    const messages = this.chatSessions.get(chatId) || [];
+    return messages.some(msg => msg.sender === 'other' && !msg.isRead);
   }
 }
 

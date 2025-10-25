@@ -1,4 +1,6 @@
-interface ChatListItemInfo {
+import { ChatMessage } from '../types';
+
+export interface ChatListItem {
   element: Element;
   chatId: string;
   title: string;
@@ -7,12 +9,17 @@ interface ChatListItemInfo {
   lastActivityTime?: number;
 }
 
+export interface ActiveChatInfo {
+  chatId: string;
+  title: string | null;
+}
+
 export class SnapchatDetector {
   private static instance: SnapchatDetector;
-  private observers: MutationObserver[] = [];
-  private isInitialized = false;
   private activeChatId: string | null = null;
-  private activeChatTitle: string | null = null;
+  private chatListItems: Map<Element, ChatListItem> = new Map();
+  private messageContainer: Element | null = null;
+  private observer: MutationObserver | null = null;
 
   static getInstance(): SnapchatDetector {
     if (!SnapchatDetector.instance) {
@@ -22,83 +29,16 @@ export class SnapchatDetector {
   }
 
   initialize(): void {
-    if (this.isInitialized) return;
-    
-    this.setupMessageObserver();
+    console.log('SnapchatDetector: Инициализация детектора');
+    this.findMessageContainer();
     this.setupChatListObserver();
-    this.isInitialized = true;
-  }
-
-  private setupMessageObserver(): void {
-    // Отслеживаем изменения в области сообщений
-    const messageContainer = this.findMessageContainer();
-    if (messageContainer) {
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.type === 'childList') {
-            this.handleNewMessages(mutation.addedNodes);
-          }
-        });
-      });
-
-      observer.observe(messageContainer, {
-        childList: true,
-        subtree: true
-      });
-
-      this.observers.push(observer);
-    }
-  }
-
-  private setupChatListObserver(): void {
-    // Отслеживаем изменения в списке чатов
-    const chatList = this.findChatList();
-    if (chatList) {
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.type === 'childList') {
-            this.handleChatListChanges(mutation.addedNodes);
-            this.handleChatListChanges(mutation.removedNodes);
-            return;
-          }
-
-          if (mutation.type === 'attributes' || mutation.type === 'characterData') {
-            const element = this.resolveChatListItemElement(mutation.target);
-            if (element) {
-              this.processChatListChange(element);
-            }
-          }
-        });
-      });
-
-      observer.observe(chatList, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        characterData: true
-      });
-
-      this.observers.push(observer);
-    }
   }
 
   private findMessageContainer(): Element | null {
-    // Ищем контейнер с сообщениями в Snapchat Web
     const selectors = [
-      // Snapchat Web специфичные селекторы
-      '[data-testid="message-list"]',
-      '[data-testid="chat-messages"]',
-      '.message-list',
-      '.chat-messages',
-      '[role="log"]',
-      // Общие селекторы
-      'main',
-      '[data-testid="conversation"]',
-      '.conversation',
-      // Fallback
-      'body'
+      '[data-testid="message-list"]', '[data-testid="chat-messages"]', '.message-list', '.chat-messages', '[role="log"]',
+      'main', '[data-testid="conversation"]', '.conversation', 'body'
     ];
-
     for (const selector of selectors) {
       const element = document.querySelector(selector);
       if (element) {
@@ -106,13 +46,45 @@ export class SnapchatDetector {
         return element;
       }
     }
-
     console.log('SnapchatDetector: Контейнер сообщений не найден, используем body');
     return document.body;
   }
 
+  private setupChatListObserver(): void {
+    const chatList = this.findChatList();
+    if (!chatList) {
+      console.log('SnapchatDetector: Список чатов не найден');
+      return;
+    }
+
+    this.observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList') {
+          this.handleChatListChanges(mutation.addedNodes);
+          this.handleChatListChanges(mutation.removedNodes);
+          return;
+        }
+
+        if (mutation.type === 'attributes' || mutation.type === 'characterData') {
+          const element = this.resolveChatListItemElement(mutation.target);
+          if (element) {
+            this.processChatListChange(element);
+          }
+        }
+      });
+    });
+
+    this.observer.observe(chatList, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true
+    });
+
+    console.log('SnapchatDetector: Наблюдатель за списком чатов настроен');
+  }
+
   private findChatList(): Element | null {
-    // Ищем список чатов
     const selectors = [
       '[data-testid="chat-list"]',
       '[data-testid="conversation-list"]',
@@ -124,27 +96,16 @@ export class SnapchatDetector {
 
     for (const selector of selectors) {
       const element = document.querySelector(selector);
-      if (element) return element;
+      if (element) {
+        console.log('SnapchatDetector: Найден список чатов:', selector);
+        return element;
+      }
     }
 
     return null;
   }
 
-  private handleNewMessages(addedNodes: NodeList): void {
-    addedNodes.forEach((node) => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const element = node as Element;
-        const messages = this.extractMessagesFromElement(element);
-
-        messages.forEach(message => {
-          this.processNewMessage(message);
-        });
-      }
-    });
-  }
-
   private handleChatListChanges(nodes: NodeList): void {
-    // Обрабатываем изменения в списке чатов
     nodes.forEach((node) => {
       const element = this.resolveChatListItemElement(node);
       if (element) {
@@ -175,180 +136,7 @@ export class SnapchatDetector {
     return element.closest(selector);
   }
 
-  private extractMessagesFromElement(element: Element): Array<{
-    text: string;
-    sender: 'user' | 'other';
-    timestamp: number;
-    chatId: string;
-  }> {
-    const messages: Array<{
-      text: string;
-      sender: 'user' | 'other';
-      timestamp: number;
-      chatId: string;
-    }> = [];
-
-    // Ищем сообщения в элементе - более широкий набор селекторов для Snapchat Web
-    const messageSelectors = [
-      '[data-testid="message"]',
-      '[data-testid="chat-message"]',
-      '.message',
-      '.chat-message',
-      '[role="listitem"]',
-      '[data-testid="conversation-item"]',
-      '.conversation-item',
-      // Общие селекторы для текстовых элементов
-      'div[class*="message"]',
-      'div[class*="chat"]',
-      'span[class*="text"]',
-      'p[class*="text"]'
-    ];
-
-    let messageElements: NodeListOf<Element> | null = null;
-    const activeChatId = this.getCurrentChatId();
-
-    for (const selector of messageSelectors) {
-      messageElements = element.querySelectorAll(selector);
-      if (messageElements.length > 0) {
-        console.log(`SnapchatDetector: Найдено ${messageElements.length} элементов с селектором: ${selector}`);
-        break;
-      }
-    }
-    
-    if (!messageElements || messageElements.length === 0) {
-      console.log('SnapchatDetector: Сообщения не найдены, пробуем поиск по всему элементу');
-      // Если не нашли по селекторам, ищем все текстовые элементы
-      messageElements = element.querySelectorAll('div, span, p');
-    }
-    
-    messageElements.forEach((msgEl) => {
-      const text = this.extractMessageText(msgEl);
-      if (text && text.length > 0) {
-        const sender = this.determineSender(msgEl);
-        const timestamp = this.extractTimestamp(msgEl);
-        const chatId = activeChatId || this.getCurrentChatId();
-
-        console.log(`SnapchatDetector: Найдено сообщение: "${text}" от ${sender}`);
-
-        messages.push({
-          text,
-          sender,
-          timestamp,
-          chatId
-        });
-      }
-    });
-
-    return messages;
-  }
-
-  private extractMessageText(element: Element): string | null {
-    // Извлекаем текст сообщения
-    const textSelectors = [
-      '[data-testid="message-text"]',
-      '.message-text',
-      '.text',
-      'p',
-      'span'
-    ];
-
-    for (const selector of textSelectors) {
-      const textEl = element.querySelector(selector);
-      if (textEl && textEl.textContent?.trim()) {
-        return textEl.textContent.trim();
-      }
-    }
-
-    return element.textContent?.trim() || null;
-  }
-
-  private determineSender(element: Element): 'user' | 'other' {
-    // Определяем отправителя сообщения
-    const userIndicators = [
-      '[data-testid="own-message"]',
-      '.own-message',
-      '.sent-message',
-      '.user-message'
-    ];
-
-    for (const indicator of userIndicators) {
-      if (element.closest(indicator) || element.matches(indicator)) {
-        return 'user';
-      }
-    }
-
-    // Проверяем по классам
-    const classList = element.className.toLowerCase();
-    if (classList.includes('own') || classList.includes('sent') || classList.includes('user')) {
-      return 'user';
-    }
-
-    return 'other';
-  }
-
-  private extractTimestamp(element: Element): number {
-    // Извлекаем временную метку
-    const timeSelectors = [
-      '[data-testid="timestamp"]',
-      '.timestamp',
-      'time',
-      '[datetime]'
-    ];
-
-    for (const selector of timeSelectors) {
-      const timeEl = element.querySelector(selector);
-      if (timeEl) {
-        const datetime = timeEl.getAttribute('datetime');
-        if (datetime) {
-          return new Date(datetime).getTime();
-        }
-      }
-    }
-
-    return Date.now();
-  }
-
-  private getCurrentChatId(): string {
-    // Получаем ID текущего чата из URL или других источников
-    const url = window.location.href;
-    const chatIdMatch = url.match(/chat\/([^\/]+)/);
-    if (chatIdMatch) {
-      this.activeChatId = chatIdMatch[1];
-      return this.activeChatId;
-    }
-
-    // Альтернативный способ - из атрибутов страницы
-    const chatIdEl = document.querySelector('[data-chat-id]');
-    if (chatIdEl) {
-      const id = chatIdEl.getAttribute('data-chat-id');
-      if (id && !/^unknown$/i.test(id)) {
-        this.activeChatId = id;
-        return id;
-      }
-    }
-
-    if (this.activeChatId && !/^unknown$/i.test(this.activeChatId)) {
-      return this.activeChatId;
-    }
-
-    return 'unknown';
-  }
-
-  private processNewMessage(message: {
-    text: string;
-    sender: 'user' | 'other';
-    timestamp: number;
-    chatId: string;
-  }): void {
-    // Отправляем событие о новом сообщении
-    const event = new CustomEvent('snapchat-new-message', {
-      detail: message
-    });
-    document.dispatchEvent(event);
-  }
-
   private processChatListChange(element: Element): void {
-    // Обрабатываем изменения в списке чатов
     const statusInfo = this.extractChatStatus(element);
     const title = this.extractChatTitle(element);
     const chatId = this.extractChatIdentifier(element);
@@ -366,42 +154,32 @@ export class SnapchatDetector {
     document.dispatchEvent(event);
   }
 
-  getChatListItems(): ChatListItemInfo[] {
-    const chatList = this.findChatList() || document;
-    const selectors = [
-      '[data-testid="conversation-list-item"]',
-      '[data-testid="chat-list-item"]',
-      '[data-testid="contact-item"]',
-      '[role="listitem"]',
-      '.conversation-item',
-      '.chat-list-item'
-    ];
+  getChatListItems(): ChatListItem[] {
+    const chatList = this.findChatList();
+    if (!chatList) {
+      return [];
+    }
 
-    const items = new Map<Element, ChatListItemInfo>();
-    let index = 0;
+    const items = new Map<Element, ChatListItem>();
+    const chatElements = chatList.querySelectorAll('[role="listitem"], [data-testid*="list-item"], [data-testid*="conversation-list-item"], .conversation-item, .chat-list-item, .O4POs');
 
-    selectors.forEach((selector) => {
-      chatList.querySelectorAll(selector).forEach((element) => {
-        if (!items.has(element)) {
-          const title = this.extractChatTitle(element);
-          const rawId = this.extractChatIdentifier(element);
-          const chatId = this.buildStableChatId(rawId, title, index);
-          const statusInfo = this.extractChatStatus(element);
+    chatElements.forEach((element, index) => {
+      const title = this.extractChatTitle(element);
+      const rawId = this.extractChatIdentifier(element);
+      const chatId = this.buildStableChatId(rawId, title, index);
+      const statusInfo = this.extractChatStatus(element);
 
-          items.set(element, {
-            element,
-            chatId,
-            title: title || chatId,
-            statusText: statusInfo.text,
-            hasUnread: statusInfo.hasUnread,
-            lastActivityTime: statusInfo.lastActivityTime
-          });
-
-          index += 1;
-        }
+      items.set(element, {
+        element,
+        chatId,
+        title: title || chatId,
+        statusText: statusInfo.text,
+        hasUnread: statusInfo.hasUnread,
+        lastActivityTime: statusInfo.lastActivityTime
       });
     });
 
+    this.chatListItems = items;
     return Array.from(items.values());
   }
 
@@ -424,32 +202,25 @@ export class SnapchatDetector {
       clickable.dispatchEvent(event);
     });
 
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
-  async waitForChatToLoad(timeout = 5000): Promise<boolean> {
-    const start = Date.now();
+  async waitForChatToLoad(): Promise<boolean> {
+    const maxWaitTime = 5000;
+    const startTime = Date.now();
 
-    while (Date.now() - start < timeout) {
-      const container = this.findMessageContainer();
-      if (container) {
-        const hasMessages = container.querySelectorAll('div, span, p').length > 0;
-        if (hasMessages) {
-          const title = this.getActiveChatTitle();
-          if (title) {
-            this.activeChatTitle = title;
-          }
-          return true;
-        }
+    while (Date.now() - startTime < maxWaitTime) {
+      const messages = this.extractMessagesFromElement(this.findMessageContainer() || document.body);
+      if (messages.length > 0) {
+        return true;
       }
-
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     return false;
   }
 
-  async collectChatMessages(limit = 50): Promise<Array<{
+  async collectChatMessages(maxMessages: number = 50): Promise<Array<{
     text: string;
     sender: 'user' | 'other';
     timestamp: number;
@@ -461,87 +232,86 @@ export class SnapchatDetector {
     }
 
     const messages = this.extractMessagesFromElement(container);
-    if (limit > 0 && messages.length > limit) {
-      return messages.slice(-limit);
-    }
-
-    return messages;
+    return messages.slice(-maxMessages);
   }
 
-  // Методы для отправки сообщений
-  async sendMessage(text: string): Promise<boolean> {
-    try {
-      const candidateInputs = Array.from(document.querySelectorAll<HTMLElement>(
-        '[placeholder], [data-testid], [contenteditable="true"], textarea, input'
-      ));
+  getActiveChatInfo(): ActiveChatInfo | null {
+    if (!this.activeChatId) {
+      return null;
+    }
 
-      const inputElement = candidateInputs.find((element) => {
-        const placeholder = (element.getAttribute('placeholder') || '').toLowerCase();
-        const dataTestId = (element.getAttribute('data-testid') || '').toLowerCase();
-        const role = (element.getAttribute('role') || '').toLowerCase();
+    const chatItem = Array.from(this.chatListItems.values())
+      .find(item => item.chatId === this.activeChatId);
 
-        if (placeholder.includes('search')) {
-          return false;
-        }
+    return {
+      chatId: this.activeChatId,
+      title: chatItem?.title || null
+    };
+  }
 
-        if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
-          return true;
-        }
+  async fillMessageInput(text: string): Promise<{ success: boolean; composer: HTMLElement | null; input: HTMLElement | null }> {
+    const candidateInputs = Array.from(document.querySelectorAll<HTMLElement>(
+      '[placeholder], [data-testid], [contenteditable="true"], textarea, input'
+    ));
 
-        if (dataTestId.includes('chat-input') || dataTestId.includes('composer') || dataTestId.includes('message-input')) {
-          return true;
-        }
+    const inputElement = candidateInputs.find((element) => {
+      const placeholder = (element.getAttribute('placeholder') || '').toLowerCase();
+      const dataTestId = (element.getAttribute('data-testid') || '').toLowerCase();
+      const role = (element.getAttribute('role') || '').toLowerCase();
 
-        if (role === 'textbox' && element.isContentEditable) {
-          const composer = element.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h');
-          return !!composer;
-        }
-
-        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-          return element.type === 'text' || element.tagName.toLowerCase() === 'textarea';
-        }
-
+      if (placeholder.includes('search')) {
         return false;
-      });
+      }
 
       if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
         return true;
       }
 
-      inputElement.focus();
+      if (dataTestId.includes('chat-input') || dataTestId.includes('composer') || dataTestId.includes('message-input')) {
+        return true;
+      }
 
-      if (inputElement instanceof HTMLInputElement || inputElement instanceof HTMLTextAreaElement) {
-        const prototype = Object.getPrototypeOf(inputElement);
-        const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-        if (valueSetter) {
-          valueSetter.call(inputElement, text);
-        } else {
-          inputElement.value = text;
-        }
-      } else if (inputElement.isContentEditable) {
-        inputElement.textContent = text;
+      if (role === 'textbox' && element.isContentEditable) {
+        const composer = element.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h');
+        return !!composer;
+      }
+
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        return element.type === 'text' || element.tagName.toLowerCase() === 'textarea';
+      }
+
+      return false;
+    });
+
+    if (!inputElement) {
+      return { success: false, composer: null, input: null };
+    }
+
+    inputElement.focus();
+
+    if (inputElement instanceof HTMLInputElement || inputElement instanceof HTMLTextAreaElement) {
+      const prototype = Object.getPrototypeOf(inputElement);
+      const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (valueSetter) {
+        valueSetter.call(inputElement, text);
       } else {
-        inputElement.textContent = text;
+        inputElement.value = text;
       }
     } else if (inputElement.isContentEditable) {
       inputElement.textContent = text;
     } else {
       inputElement.textContent = text;
     }
+
+    const inputEvent = new InputEvent('input', { bubbles: true, data: text });
+    inputElement.dispatchEvent(inputEvent);
+    const changeEvent = new Event('change', { bubbles: true });
+    inputElement.dispatchEvent(changeEvent);
+
+    const composer = inputElement.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h, form, [role="form"]') as HTMLElement;
+
+    return { success: true, composer, input: inputElement };
   }
-
-      const inputEvent = new InputEvent('input', { bubbles: true, data: text });
-      inputElement.dispatchEvent(inputEvent);
-      const changeEvent = new Event('change', { bubbles: true });
-      inputElement.dispatchEvent(changeEvent);
-
-      const composer = inputElement.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h, form, [role="form"]');
-      const sendButtonSelectors = [
-        '[data-testid="send-button"]',
-        'button[data-testid*="send"]',
-        'button[aria-label*="send" i]',
-        'button[type="submit"]'
-      ];
 
   private findSendButton(composer: HTMLElement | null): HTMLButtonElement | null {
     const sendButtonSelectors = [
@@ -551,34 +321,30 @@ export class SnapchatDetector {
       'button[type="submit"]'
     ];
 
-      if (composer) {
-        for (const selector of sendButtonSelectors) {
-          const found = composer.querySelector(selector) as HTMLButtonElement | null;
-          if (found) {
-            sendButton = found;
-            break;
-          }
-        }
-
-        if (!sendButton) {
-          const possibleButtons = Array.from(composer.querySelectorAll('button')) as HTMLButtonElement[];
-          sendButton = possibleButtons.find((button) => {
-            if (!button.offsetParent) {
-              return false;
-            }
-            const label = (button.getAttribute('aria-label') || '').toLowerCase();
-            if (label.includes('attach') || label.includes('emoji') || label.includes('sticker')) {
-              return false;
-            }
-            const hasArrowSvg = button.querySelector('svg path[d*="13.536"], svg path[d*="M13.5"], svg.zfQr6');
-            if (hasArrowSvg) {
-              return true;
-            }
-            const textContent = (button.textContent || '').trim();
-            return textContent.length === 0;
-          }) || null;
+    if (composer) {
+      for (const selector of sendButtonSelectors) {
+        const found = composer.querySelector(selector) as HTMLButtonElement | null;
+        if (found) {
+          return found;
         }
       }
+
+      const possibleButtons = Array.from(composer.querySelectorAll('button')) as HTMLButtonElement[];
+      return possibleButtons.find((button) => {
+        if (!button.offsetParent) {
+          return false;
+        }
+        const label = (button.getAttribute('aria-label') || '').toLowerCase();
+        if (label.includes('attach') || label.includes('emoji') || label.includes('sticker')) {
+          return false;
+        }
+        const hasArrowSvg = button.querySelector('svg path[d*="13.536"], svg path[d*="M13.5"], svg.zfQr6');
+        if (hasArrowSvg) {
+          return true;
+        }
+        const textContent = (button.textContent || '').trim();
+        return textContent.length === 0;
+      }) || null;
     }
 
     return null;
@@ -588,14 +354,8 @@ export class SnapchatDetector {
     try {
       const { success, composer, input } = await this.fillMessageInput(text);
 
-      if (!sendButton) {
-        for (const selector of sendButtonSelectors) {
-          const found = document.querySelector(selector) as HTMLButtonElement | null;
-          if (found && (!composer || composer.contains(found))) {
-            sendButton = found;
-            break;
-          }
-        }
+      if (!success) {
+        return false;
       }
 
       const sendButton = this.findSendButton(composer);
@@ -614,114 +374,145 @@ export class SnapchatDetector {
             which: 13,
             bubbles: true
           });
-          input.dispatchEvent(event);
+          input?.dispatchEvent(event);
         });
       }
 
       return true;
     } catch (error) {
-      console.error('Ошибка при отправке сообщения:', error);
+      console.error('Error sending message:', error);
       return false;
     }
   }
 
-  getActiveChatInfo(): { chatId: string; title: string | null } {
-    return {
-      chatId: this.getCurrentChatId(),
-      title: this.getActiveChatTitle()
-    };
+  private extractMessagesFromElement(element: Element): Array<{ text: string; sender: 'user' | 'other'; timestamp: number; chatId: string; }> {
+    const messages: Array<{ text: string; sender: 'user' | 'other'; timestamp: number; chatId: string; }> = [];
+    const messageSelectors = [
+      '[data-testid="message"]', '[data-testid="chat-message"]', '.message', '.chat-message', '[role="listitem"]',
+      '[data-testid="conversation-item"]', '.conversation-item', 'div[class*="message"]', 'div[class*="chat"]', 'span[class*="text"]', 'p[class*="text"]'
+    ];
+    let messageElements: NodeListOf<Element> | null = null;
+    for (const selector of messageSelectors) {
+      messageElements = element.querySelectorAll(selector);
+      if (messageElements.length > 0) {
+        console.log(`SnapchatDetector: Найдено ${messageElements.length} элементов с селектором: ${selector}`);
+        break;
+      }
+    }
+    if (!messageElements || messageElements.length === 0) {
+      console.log('SnapchatDetector: Сообщения не найдены, пробуем поиск по всему элементу');
+      messageElements = element.querySelectorAll('div, span, p');
+    }
+    messageElements.forEach((msgEl) => {
+      const text = this.extractMessageText(msgEl);
+      if (text && text.length > 0) {
+        const sender = this.determineSender(msgEl);
+        const timestamp = this.extractTimestamp(msgEl);
+        const chatId = this.getCurrentChatId();
+        console.log(`SnapchatDetector: Найдено сообщение: "${text}" от ${sender}`);
+        messages.push({ text, sender, timestamp, chatId });
+      }
+    });
+    return messages;
   }
 
-  destroy(): void {
-    this.observers.forEach(observer => observer.disconnect());
-    this.observers = [];
-    this.isInitialized = false;
-    this.activeChatId = null;
-    this.activeChatTitle = null;
+  private extractMessageText(element: Element): string {
+    const textSelectors = [
+      '[data-testid="message-text"]', '.message-text', '.chat-message-text', 'span', 'p', 'div'
+    ];
+    
+    for (const selector of textSelectors) {
+      const textElement = element.querySelector(selector);
+      if (textElement && textElement.textContent) {
+        return textElement.textContent.trim();
+      }
+    }
+    
+    return element.textContent?.trim() || '';
+  }
+
+  private determineSender(element: Element): 'user' | 'other' {
+    const userIndicators = [
+      '[data-testid*="user"]', '[class*="user"]', '[class*="sent"]', '[class*="outgoing"]'
+    ];
+    
+    for (const indicator of userIndicators) {
+      if (element.closest(indicator)) {
+        return 'user';
+      }
+    }
+    
+    return 'other';
+  }
+
+  private extractTimestamp(element: Element): number {
+    const timeElement = element.querySelector('time, [data-testid*="time"], [class*="time"]');
+    if (timeElement) {
+      const datetime = timeElement.getAttribute('datetime');
+      if (datetime) {
+        const timestamp = Date.parse(datetime);
+        if (!isNaN(timestamp)) {
+          return timestamp;
+        }
+      }
+    }
+    
+    return Date.now();
+  }
+
+  private getCurrentChatId(): string {
+    if (this.activeChatId && !/^unknown$/i.test(this.activeChatId)) {
+      return this.activeChatId;
+    }
+
+    const urlMatch = window.location.pathname.match(/\/chat\/([^\/]+)/);
+    if (urlMatch) {
+      this.activeChatId = urlMatch[1];
+      return this.activeChatId;
+    }
+
+    const id = `chat-${Date.now()}`;
+    this.activeChatId = id;
+    return id;
   }
 
   private extractChatTitle(element: Element): string {
     const titleSelectors = [
-      '[data-testid="conversation-title"]',
-      '[data-testid="display-name"]',
-      '[data-testid="contact-name"]',
-      '[data-testid="conversation-title-text"]',
-      'h3',
-      'h2',
-      'span',
-      'div'
+      '[data-testid="chat-title"]', '[data-testid="conversation-title"]', '.chat-title', '.conversation-title',
+      'h1', 'h2', 'h3', '[role="heading"]', '.title', '[class*="title"]'
     ];
-
+    
     for (const selector of titleSelectors) {
       const titleElement = element.querySelector(selector);
       if (titleElement && titleElement.textContent) {
         return titleElement.textContent.trim();
       }
     }
-
-    const text = element.textContent?.trim() || '';
-    return text.split('\n')[0]?.trim() || '';
+    
+    return element.textContent?.trim() || '';
   }
 
-  private extractChatIdentifier(element: Element): string | null {
-    const attributeCandidates = ['data-chat-id', 'data-id', 'data-testid', 'data-qa-id'];
-
-    for (const attr of attributeCandidates) {
-      const value = element.getAttribute(attr);
-      if (value) {
-        return value;
-      }
-    }
-
-    const ariaLabel = element.getAttribute('aria-label');
-    if (ariaLabel) {
-      return ariaLabel;
-    }
-
-    return null;
-  }
-
-  private buildStableChatId(rawId: string | null | undefined, title: string, index: number): string {
-    const trimmedRaw = rawId?.trim();
-    if (trimmedRaw && !/^unknown$/i.test(trimmedRaw)) {
-      return trimmedRaw;
-    }
-
-    const normalizedTitle = title
-      ? title
-          .toLowerCase()
-          .replace(/[^a-z0-9а-яё]+/gi, '-')
-          .replace(/^-+|-+$/g, '')
-      : '';
-
-    if (normalizedTitle) {
-      return normalizedTitle;
-    }
-
-    return `chat-${index}`;
-  }
-
-  private getActiveChatTitle(): string | null {
-    const containerSelectors = [
-      '[data-testid="conversation-header"]',
-      '[data-testid="chat-header"]',
-      '[data-testid="conversation-header-title"]',
-      '[data-testid="conversation-title"]',
-      'header',
-      '[role="banner"]'
+  private extractChatIdentifier(element: Element): string {
+    const idSelectors = [
+      '[data-testid*="chat"]', '[data-testid*="conversation"]', '[id*="chat"]', '[id*="conversation"]'
     ];
-
-    for (const selector of containerSelectors) {
-      const container = document.querySelector(selector);
-      if (container) {
-        const title = this.extractChatTitle(container);
-        if (title) {
-          return title;
+    
+    for (const selector of idSelectors) {
+      const idElement = element.querySelector(selector);
+      if (idElement) {
+        const id = idElement.getAttribute('data-testid') || idElement.getAttribute('id');
+        if (id) {
+          return id;
         }
       }
     }
+    
+    return `chat-${Date.now()}`;
+  }
 
-    return null;
+  private buildStableChatId(rawId: string, title: string, index: number): string {
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `${rawId}-${normalizedTitle}-${index}`;
   }
 
   private extractChatStatus(element: Element): { text: string | null; hasUnread: boolean; lastActivityTime?: number } {
@@ -835,5 +626,14 @@ export class SnapchatDetector {
       hasUnread,
       lastActivityTime
     };
+  }
+
+  destroy(): void {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    this.activeChatId = null;
+    this.chatListItems.clear();
   }
 }
