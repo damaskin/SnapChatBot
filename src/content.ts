@@ -5,6 +5,30 @@ import { huggingFaceService } from './services/huggingface';
 import { simpleAIService } from './services/simple-ai';
 import { firebaseService } from './services/firebase';
 
+type TestPipelineStep =
+  | 'detectUnread'
+  | 'openChat'
+  | 'readMessages'
+  | 'sendToAI'
+  | 'insertReply'
+  | 'sendMessage'
+  | 'fullPipeline';
+
+interface TestPipelineContext {
+  chatId?: string;
+  title?: string | null;
+  messages?: ChatMessage[];
+  aiResponse?: string;
+}
+
+interface TestStepResult {
+  success: boolean;
+  logs: string[];
+  error?: string;
+  step?: TestPipelineStep;
+  data?: Record<string, unknown>;
+}
+
 class SnapchatBot {
   private detector: SnapchatDetector;
   private isEnabled = false;
@@ -30,6 +54,7 @@ class SnapchatBot {
   private readonly ANALYSIS_RATE_LIMIT_PER_MINUTE = 6;
   private readonly defaultExcludedUsers = ['my ai', 'team snapchat'];
   private chatMetadata: Map<string, { id: string; title?: string | null }> = new Map();
+  private testContext: TestPipelineContext = {};
 
   constructor() {
     console.log('Snapchat Bot: Content script загружен на', window.location.href);
@@ -174,7 +199,25 @@ class SnapchatBot {
       this.handleNewMessage(event.detail);
     });
 
-    document.addEventListener('snapchat-chat-list-change', () => {
+    document.addEventListener('snapchat-chat-list-change', (event: any) => {
+      const detail = event?.detail;
+
+      if (detail) {
+        if (detail.chatId || detail.title) {
+          this.updateChatMetadata(detail.chatId, detail.title);
+        }
+
+        const normalizedId = this.normalizeIdentifier(detail?.chatId);
+        if (normalizedId) {
+          this.processedChats.delete(normalizedId);
+        }
+
+        const normalizedTitle = this.normalizeIdentifier(detail?.title);
+        if (normalizedTitle) {
+          this.processedChats.delete(normalizedTitle);
+        }
+      }
+
       if (this.isEnabled) {
         this.processPendingChats();
       }
@@ -859,10 +902,10 @@ class SnapchatBot {
               [{
                 id: 'test',
                 text: request.message,
-                sender: 'other', 
-                timestamp: Date.now(), 
+                sender: 'other',
+                timestamp: Date.now(),
                 chatId: 'test',
-                isRead: false 
+                isRead: false
               }],
               this.currentAgent
             );
@@ -875,9 +918,322 @@ class SnapchatBot {
         }
         break;
 
+      case 'runTestStep':
+        this.runTestStep(request.step as TestPipelineStep)
+          .then((result) => {
+            sendResponse(result);
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            sendResponse({ success: false, error: message, logs: [`❌ Ошибка выполнения шага: ${message}`] });
+          });
+        break;
+
       default:
         sendResponse({ success: false, error: 'Unknown action' });
     }
+  }
+
+  private resetTestContext(): void {
+    this.testContext = {};
+  }
+
+  private async runTestStep(step: TestPipelineStep): Promise<TestStepResult> {
+    if (step === 'fullPipeline') {
+      this.resetTestContext();
+      const aggregateLogs: string[] = [];
+      const steps: TestPipelineStep[] = ['detectUnread', 'openChat', 'readMessages', 'sendToAI', 'insertReply', 'sendMessage'];
+
+      for (const currentStep of steps) {
+        const result = await this.executeTestStep(currentStep);
+        aggregateLogs.push(...result.logs);
+
+        if (!result.success) {
+          return { ...result, logs: aggregateLogs, step: currentStep };
+        }
+      }
+
+      aggregateLogs.push('✅ Полный сценарий выполнен успешно.');
+      return { success: true, logs: aggregateLogs, step };
+    }
+
+    return this.executeTestStep(step);
+  }
+
+  private async executeTestStep(step: TestPipelineStep): Promise<TestStepResult> {
+    switch (step) {
+      case 'detectUnread':
+        return this.testDetectUnreadChats();
+      case 'openChat':
+        return this.testOpenChat();
+      case 'readMessages':
+        return this.testReadMessages();
+      case 'sendToAI':
+        return this.testSendContextToAI();
+      case 'insertReply':
+        return this.testInsertAIResponse();
+      case 'sendMessage':
+        return this.testSendPreparedMessage();
+      default:
+        return {
+          success: false,
+          logs: ['❌ Неизвестный шаг тестового сценария.'],
+          error: 'Unknown test step'
+        };
+    }
+  }
+
+  private async testDetectUnreadChats(): Promise<TestStepResult> {
+    const logs: string[] = ['ℹ️ Поиск чатов с новыми сообщениями...'];
+    const chatItems = this.detector.getChatListItems();
+
+    if (chatItems.length === 0) {
+      logs.push('❌ Не удалось обнаружить список чатов.');
+      return { success: false, logs, error: 'Chat list not found' };
+    }
+
+    const processedItems = chatItems
+      .map((item) => {
+        this.updateChatMetadata(item.chatId, item.title);
+        return item;
+      })
+      .filter((item) => {
+        const skip = this.shouldSkipChat(item.chatId, item.title);
+        if (skip) {
+          logs.push(`⚠️ Чат пропущен (в исключениях): ${item.title || item.chatId}`);
+        }
+        return !skip;
+      });
+
+    if (processedItems.length === 0) {
+      logs.push('❌ Нет доступных чатов для обработки.');
+      return { success: false, logs, error: 'No available chats' };
+    }
+
+    const prioritized = [...processedItems].sort((a, b) => {
+      if (a.hasUnread !== b.hasUnread) {
+        return Number(b.hasUnread) - Number(a.hasUnread);
+      }
+
+      const aTime = a.lastActivityTime ?? 0;
+      const bTime = b.lastActivityTime ?? 0;
+      return bTime - aTime;
+    });
+
+    const target = prioritized[0];
+
+    this.testContext.chatId = target.chatId;
+    this.testContext.title = target.title;
+    this.testContext.messages = undefined;
+    this.testContext.aiResponse = undefined;
+
+    logs.push(`✅ Найден чат для обработки: ${target.title || target.chatId}${target.hasUnread ? ' (есть новые сообщения)' : ''}`);
+
+    return {
+      success: true,
+      logs,
+      data: {
+        chatId: target.chatId,
+        title: target.title,
+        hasUnread: target.hasUnread,
+        lastActivityTime: target.lastActivityTime ?? null
+      }
+    };
+  }
+
+  private async testOpenChat(): Promise<TestStepResult> {
+    const logs: string[] = ['ℹ️ Открываем выбранный чат...'];
+    const chatId = this.testContext.chatId;
+    const title = this.testContext.title;
+
+    if (!chatId && !title) {
+      logs.push('❌ Сначала выполните поиск чата с новыми сообщениями.');
+      return { success: false, logs, error: 'Chat not selected' };
+    }
+
+    const chatItems = this.detector.getChatListItems();
+    const normalizedChatId = this.normalizeIdentifier(chatId || '');
+    const normalizedTitle = this.normalizeIdentifier(title || '');
+
+    const target = chatItems.find((item) => {
+      const itemId = this.normalizeIdentifier(item.chatId);
+      const itemTitle = this.normalizeIdentifier(item.title);
+      return (normalizedChatId && itemId === normalizedChatId) || (normalizedTitle && itemTitle === normalizedTitle);
+    });
+
+    if (!target) {
+      logs.push('❌ Не удалось найти чат в списке. Возможно, он был обновлен.');
+      return { success: false, logs, error: 'Chat element not found' };
+    }
+
+    await this.detector.openChat(target.element, { chatId: target.chatId, title: target.title });
+    const isLoaded = await this.detector.waitForChatToLoad();
+
+    if (!isLoaded) {
+      logs.push('❌ Чат не загрузился за отведенное время.');
+      return { success: false, logs, error: 'Chat did not load' };
+    }
+
+    const activeChatInfo = this.detector.getActiveChatInfo();
+    if (activeChatInfo) {
+      this.updateChatMetadata(activeChatInfo.chatId, activeChatInfo.title);
+      this.testContext.chatId = activeChatInfo.chatId;
+      this.testContext.title = activeChatInfo.title;
+    }
+
+    logs.push(`✅ Чат открыт: ${this.testContext.title || this.testContext.chatId || 'неизвестно'}`);
+
+    return {
+      success: true,
+      logs,
+      data: {
+        chatId: this.testContext.chatId || chatId,
+        title: this.testContext.title || title
+      }
+    };
+  }
+
+  private async testReadMessages(): Promise<TestStepResult> {
+    const logs: string[] = ['ℹ️ Читаем сообщения из открытого диалога...'];
+    const messages = await this.detector.collectChatMessages(50);
+
+    if (messages.length === 0) {
+      logs.push('❌ Не удалось получить сообщения из диалога.');
+      return { success: false, logs, error: 'No messages in chat' };
+    }
+
+    const activeChatInfo = this.detector.getActiveChatInfo();
+    if (activeChatInfo) {
+      this.testContext.chatId = activeChatInfo.chatId;
+      this.testContext.title = activeChatInfo.title;
+    }
+
+    const resolvedChatId = this.testContext.chatId || messages[messages.length - 1]?.chatId || 'unknown';
+    const now = Date.now();
+
+    const chatMessages: ChatMessage[] = messages.map((message, index) => ({
+      id: `${resolvedChatId}-${message.timestamp || now}-${index}`,
+      text: message.text,
+      sender: message.sender === 'user' ? 'user' : 'other',
+      timestamp: message.timestamp || now,
+      chatId: resolvedChatId,
+      isRead: message.sender !== 'other'
+    }));
+
+    this.testContext.messages = chatMessages;
+
+    const preview = chatMessages[chatMessages.length - 1]?.text || '';
+    logs.push(`✅ Получено сообщений: ${chatMessages.length}. Последнее: "${preview.slice(0, 60)}"`);
+
+    return {
+      success: true,
+      logs,
+      data: {
+        messages: chatMessages.length,
+        lastMessagePreview: preview
+      }
+    };
+  }
+
+  private async testSendContextToAI(): Promise<TestStepResult> {
+    const logs: string[] = ['ℹ️ Отправляем контекст в Gemini...'];
+
+    if (!this.currentAgent) {
+      const selectedAgentId = this.config?.selectedAgentId;
+      if (selectedAgentId) {
+        await this.loadAgent(selectedAgentId);
+      }
+    }
+
+    if (!this.currentAgent) {
+      logs.push('❌ Не выбран активный AI агент.');
+      return { success: false, logs, error: 'AI agent not configured' };
+    }
+
+    if (!this.testContext.messages || this.testContext.messages.length === 0) {
+      logs.push('❌ Нет сообщений для анализа. Сначала прочитайте контекст чата.');
+      return { success: false, logs, error: 'No messages to analyze' };
+    }
+
+    try {
+      const response = await geminiService.generateResponse(this.testContext.messages, this.currentAgent);
+      const trimmed = (response || '').trim();
+
+      if (!trimmed) {
+        logs.push('❌ Gemini вернул пустой ответ.');
+        return { success: false, logs, error: 'Empty response from Gemini' };
+      }
+
+      this.testContext.aiResponse = trimmed;
+      logs.push(`✅ Получен ответ ИИ (${trimmed.length} символов).`);
+
+      return {
+        success: true,
+        logs,
+        data: {
+          responsePreview: trimmed.slice(0, 120)
+        }
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown Gemini error';
+      logs.push(`❌ Ошибка при обращении к Gemini: ${message}`);
+      return { success: false, logs, error: message };
+    }
+  }
+
+  private async testInsertAIResponse(): Promise<TestStepResult> {
+    const logs: string[] = ['ℹ️ Вставляем ответ ИИ в поле сообщения...'];
+    const text = (this.testContext.aiResponse || '').trim();
+
+    if (!text) {
+      logs.push('❌ Нет сгенерированного ответа для вставки.');
+      return { success: false, logs, error: 'AI response is empty' };
+    }
+
+    const result = await this.detector.fillMessageInput(text);
+
+    if (!result.success) {
+      logs.push('❌ Не удалось найти или заполнить поле ввода сообщения.');
+      return { success: false, logs, error: 'Failed to fill message input' };
+    }
+
+    logs.push('✅ Ответ вставлен в поле ввода.');
+
+    return {
+      success: true,
+      logs,
+      data: {
+        length: text.length
+      }
+    };
+  }
+
+  private async testSendPreparedMessage(): Promise<TestStepResult> {
+    const logs: string[] = ['ℹ️ Отправляем подготовленное сообщение...'];
+    const text = (this.testContext.aiResponse || '').trim();
+
+    if (!text) {
+      logs.push('❌ Нет подготовленного ответа для отправки.');
+      return { success: false, logs, error: 'AI response missing' };
+    }
+
+    const sent = await this.detector.sendMessage(text);
+
+    if (!sent) {
+      logs.push('❌ Не удалось отправить сообщение через интерфейс Snapchat.');
+      return { success: false, logs, error: 'Failed to send message' };
+    }
+
+    logs.push('✅ Сообщение отправлено собеседнику.');
+
+    return {
+      success: true,
+      logs,
+      data: {
+        chatId: this.testContext.chatId || null,
+        title: this.testContext.title || null
+      }
+    };
   }
 
   private startChatProcessing(): void {
@@ -938,12 +1294,29 @@ class SnapchatBot {
 
     try {
       const chatItems = this.detector.getChatListItems();
+      const prioritizedChatItems = [...chatItems].sort((a, b) => {
+        if (a.hasUnread !== b.hasUnread) {
+          return Number(b.hasUnread) - Number(a.hasUnread);
+        }
 
-      for (const chatItem of chatItems) {
+        const aTime = a.lastActivityTime ?? 0;
+        const bTime = b.lastActivityTime ?? 0;
+        return bTime - aTime;
+      });
+
+      for (const chatItem of prioritizedChatItems) {
         const normalizedListId = this.normalizeIdentifier(chatItem.chatId);
+        const shouldForceProcess = chatItem.hasUnread;
 
-        if (this.processedChats.has(normalizedListId) || this.queuedChats.has(normalizedListId)) {
+        if (!shouldForceProcess && (this.processedChats.has(normalizedListId) || this.queuedChats.has(normalizedListId))) {
           continue;
+        }
+
+        if (shouldForceProcess) {
+          this.processedChats.delete(normalizedListId);
+          if (chatItem.title) {
+            this.processedChats.delete(this.normalizeIdentifier(chatItem.title));
+          }
         }
 
         this.updateChatMetadata(chatItem.chatId, chatItem.title);

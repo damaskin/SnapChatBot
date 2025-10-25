@@ -59,6 +59,24 @@
                     <button class="btn btn-small" id="sendTest">Отправить</button>
                 </div>
                 <div class="test-response" id="testResponse"></div>
+
+                <div class="pipeline-test" id="pipelineTest">
+                    <h4>Пошаговая проверка сценария</h4>
+                    <div class="pipeline-buttons">
+                        <button class="btn btn-small" data-test-action="detectUnread">1. Найти чат с новыми сообщениями</button>
+                        <button class="btn btn-small" data-test-action="openChat">2. Открыть чат</button>
+                        <button class="btn btn-small" data-test-action="readMessages">3. Прочитать контекст</button>
+                        <button class="btn btn-small" data-test-action="sendToAI">4. Отправить в Gemini</button>
+                        <button class="btn btn-small" data-test-action="insertReply">5. Вставить ответ в поле</button>
+                        <button class="btn btn-small" data-test-action="sendMessage">6. Отправить сообщение</button>
+                        <button class="btn btn-primary btn-small" data-test-action="fullPipeline">🚀 Полный сценарий</button>
+                        <button class="btn btn-small" id="clearTestLog">Очистить логи</button>
+                    </div>
+                    <div class="test-log">
+                        <h4>Логи тестирования</h4>
+                        <div class="test-log-output" id="testLog"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="stats-section">

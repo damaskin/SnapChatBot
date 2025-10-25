@@ -1,9 +1,29 @@
 import { BotConfig, AIAgent } from './types';
 
+type TestPipelineStep =
+  | 'detectUnread'
+  | 'openChat'
+  | 'readMessages'
+  | 'sendToAI'
+  | 'insertReply'
+  | 'sendMessage'
+  | 'fullPipeline';
+
+const TEST_STEP_LABELS: Record<TestPipelineStep, string> = {
+  detectUnread: 'Поиск чатов с новыми сообщениями',
+  openChat: 'Открытие выбранного чата',
+  readMessages: 'Чтение контекста диалога',
+  sendToAI: 'Отправка контекста в Gemini',
+  insertReply: 'Вставка ответа в поле ввода',
+  sendMessage: 'Отправка сообщения собеседнику',
+  fullPipeline: 'Полный сценарий: от определения до отправки'
+};
+
 class PopupController {
   private config: BotConfig | null = null;
   private agents: AIAgent[] = [];
   private isInitialized = false;
+  private testLogContainer: HTMLElement | null = null;
 
   constructor() {
     this.initialize();
@@ -67,7 +87,7 @@ class PopupController {
     // Отправка тестового сообщения
     const sendTestBtn = document.getElementById('sendTest');
     const testMessageInput = document.getElementById('testMessage') as HTMLInputElement;
-    
+
     sendTestBtn?.addEventListener('click', () => {
       this.sendTestMessage(testMessageInput.value);
     });
@@ -76,6 +96,23 @@ class PopupController {
       if (e.key === 'Enter') {
         this.sendTestMessage(testMessageInput.value);
       }
+    });
+
+    this.testLogContainer = document.getElementById('testLog');
+
+    const pipelineButtons = document.querySelectorAll<HTMLButtonElement>('[data-test-action]');
+    pipelineButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.testAction as TestPipelineStep | undefined;
+        if (action) {
+          void this.runTestPipelineAction(action);
+        }
+      });
+    });
+
+    document.getElementById('clearTestLog')?.addEventListener('click', () => {
+      this.clearTestLog();
+      this.appendTestLog('🧹 Логи очищены', 'info');
     });
 
     // Ссылки в футере
@@ -130,11 +167,13 @@ class PopupController {
   private toggleTestSection(): void {
     const testSection = document.getElementById('testSection');
     const testBotBtn = document.getElementById('testBot');
-    
+
     if (testSection && testBotBtn) {
       const isVisible = testSection.style.display !== 'none';
       testSection.style.display = isVisible ? 'none' : 'block';
-      testBotBtn.textContent = isVisible ? '🧪 Тест' : '❌ Закрыть';
+      testBotBtn.innerHTML = isVisible
+        ? '<span class="btn-icon">🧪</span> Тест'
+        : '<span class="btn-icon">❌</span> Закрыть';
     }
   }
 
@@ -300,6 +339,112 @@ class PopupController {
         }
       });
     });
+  }
+
+  private async runTestPipelineAction(step: TestPipelineStep): Promise<void> {
+    const description = this.getTestStepDescription(step);
+    this.appendTestLog(`▶️ ${description}`, 'info');
+
+    const tab = await this.getActiveSnapchatTab();
+    if (!tab?.id) {
+      this.appendTestLog('❌ Не найдена активная вкладка Snapchat. Откройте web.snapchat.com и попробуйте снова.', 'error');
+      return;
+    }
+
+    const response = await this.dispatchTestStep(tab.id, step);
+
+    if (!response) {
+      this.appendTestLog('❌ Не удалось получить ответ от контент-скрипта.', 'error');
+      return;
+    }
+
+    const logs: string[] = Array.isArray(response.logs) ? response.logs : [];
+    logs.forEach((log) => {
+      if (typeof log !== 'string') {
+        return;
+      }
+      if (log.includes('❌')) {
+        this.appendTestLog(log, 'error');
+      } else if (log.includes('✅')) {
+        this.appendTestLog(log, 'success');
+      } else if (log.includes('⚠️')) {
+        this.appendTestLog(log, 'error');
+      } else {
+        this.appendTestLog(log, 'info');
+      }
+    });
+
+    if (response.success) {
+      this.appendTestLog(`✅ Шаг выполнен: ${description}`, 'success');
+    } else {
+      if (response.error) {
+        this.appendTestLog(`❌ Ошибка: ${response.error}`, 'error');
+      } else {
+        this.appendTestLog('❌ Шаг завершился с ошибкой без дополнительного описания.', 'error');
+      }
+    }
+  }
+
+  private getTestStepDescription(step: TestPipelineStep): string {
+    return TEST_STEP_LABELS[step] || step;
+  }
+
+  private async getActiveSnapchatTab(): Promise<chrome.tabs.Tab | null> {
+    return new Promise((resolve) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const activeTab = tabs[0];
+        if (activeTab?.url && activeTab.url.includes('snapchat.com')) {
+          resolve(activeTab);
+          return;
+        }
+
+        chrome.tabs.query({}, (allTabs) => {
+          const targetTab = allTabs.find((tab) => tab.url && tab.url.includes('snapchat.com')) || null;
+          resolve(targetTab);
+        });
+      });
+    });
+  }
+
+  private async dispatchTestStep(tabId: number, step: TestPipelineStep): Promise<any> {
+    return new Promise((resolve) => {
+      chrome.tabs.sendMessage(tabId, { action: 'runTestStep', step }, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ success: false, error: chrome.runtime.lastError.message, logs: [] });
+        } else {
+          resolve(response || { success: false, error: 'Нет ответа от контент-скрипта', logs: [] });
+        }
+      });
+    });
+  }
+
+  private appendTestLog(message: string, type: 'info' | 'success' | 'error' = 'info'): void {
+    if (!this.testLogContainer) {
+      this.testLogContainer = document.getElementById('testLog');
+    }
+
+    const container = this.testLogContainer;
+
+    if (!container) {
+      console.log('[TestLog]', message);
+      return;
+    }
+
+    const entry = document.createElement('div');
+    entry.className = `log-entry log-${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    container.appendChild(entry);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  private clearTestLog(): void {
+    if (!this.testLogContainer) {
+      this.testLogContainer = document.getElementById('testLog');
+    }
+
+    if (this.testLogContainer) {
+      this.testLogContainer.innerHTML = '';
+    }
   }
 }
 
