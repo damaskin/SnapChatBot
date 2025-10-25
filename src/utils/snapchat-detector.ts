@@ -2,6 +2,9 @@ interface ChatListItemInfo {
   element: Element;
   chatId: string;
   title: string;
+  statusText: string | null;
+  hasUnread: boolean;
+  lastActivityTime?: number;
 }
 
 export class SnapchatDetector {
@@ -55,13 +58,24 @@ export class SnapchatDetector {
         mutations.forEach((mutation) => {
           if (mutation.type === 'childList') {
             this.handleChatListChanges(mutation.addedNodes);
+            this.handleChatListChanges(mutation.removedNodes);
+            return;
+          }
+
+          if (mutation.type === 'attributes' || mutation.type === 'characterData') {
+            const element = this.resolveChatListItemElement(mutation.target);
+            if (element) {
+              this.processChatListChange(element);
+            }
           }
         });
       });
 
       observer.observe(chatList, {
         childList: true,
-        subtree: true
+        subtree: true,
+        attributes: true,
+        characterData: true
       });
 
       this.observers.push(observer);
@@ -129,14 +143,36 @@ export class SnapchatDetector {
     });
   }
 
-  private handleChatListChanges(addedNodes: NodeList): void {
+  private handleChatListChanges(nodes: NodeList): void {
     // Обрабатываем изменения в списке чатов
-    addedNodes.forEach((node) => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const element = node as Element;
+    nodes.forEach((node) => {
+      const element = this.resolveChatListItemElement(node);
+      if (element) {
         this.processChatListChange(element);
       }
     });
+  }
+
+  private resolveChatListItemElement(node: Node | null): Element | null {
+    if (!node) {
+      return null;
+    }
+
+    const element = node instanceof Element ? node : node.parentElement;
+    if (!element) {
+      return null;
+    }
+
+    const selector = [
+      '[role="listitem"]',
+      '[data-testid*="list-item"]',
+      '[data-testid*="conversation-list-item"]',
+      '.conversation-item',
+      '.chat-list-item',
+      '.O4POs'
+    ].join(',');
+
+    return element.closest(selector);
   }
 
   private extractMessagesFromElement(element: Element): Array<{
@@ -313,8 +349,19 @@ export class SnapchatDetector {
 
   private processChatListChange(element: Element): void {
     // Обрабатываем изменения в списке чатов
+    const statusInfo = this.extractChatStatus(element);
+    const title = this.extractChatTitle(element);
+    const chatId = this.extractChatIdentifier(element);
+
     const event = new CustomEvent('snapchat-chat-list-change', {
-      detail: { element }
+      detail: {
+        element,
+        chatId,
+        title,
+        statusText: statusInfo.text,
+        hasUnread: statusInfo.hasUnread,
+        lastActivityTime: statusInfo.lastActivityTime ?? null
+      }
     });
     document.dispatchEvent(event);
   }
@@ -339,11 +386,15 @@ export class SnapchatDetector {
           const title = this.extractChatTitle(element);
           const rawId = this.extractChatIdentifier(element);
           const chatId = this.buildStableChatId(rawId, title, index);
+          const statusInfo = this.extractChatStatus(element);
 
           items.set(element, {
             element,
             chatId,
-            title: title || chatId
+            title: title || chatId,
+            statusText: statusInfo.text,
+            hasUnread: statusInfo.hasUnread,
+            lastActivityTime: statusInfo.lastActivityTime
           });
 
           index += 1;
@@ -650,5 +701,118 @@ export class SnapchatDetector {
     }
 
     return null;
+  }
+
+  private extractChatStatus(element: Element): { text: string | null; hasUnread: boolean; lastActivityTime?: number } {
+    const statusSelectors = [
+      '[id^="status-"]',
+      '[data-testid*="status"]',
+      '[class*="status"]',
+      '[aria-label*="status" i]',
+      '[aria-live]'
+    ];
+
+    let statusText: string | null = null;
+
+    for (const selector of statusSelectors) {
+      const candidate = element.querySelector(selector);
+      if (candidate && candidate.textContent?.trim()) {
+        statusText = candidate.textContent.trim();
+        break;
+      }
+    }
+
+    if (!statusText) {
+      const keywords = [
+        'new chat',
+        'new snap',
+        'new message',
+        'received',
+        'непрочитан',
+        'непрочитано',
+        'новое',
+        'новый чат',
+        'только что',
+        'just now'
+      ];
+
+      const fallback = Array.from(element.querySelectorAll('span, div'))
+        .find(node => {
+          const text = node.textContent?.trim();
+          if (!text) {
+            return false;
+          }
+
+          const normalized = text.toLowerCase();
+          return keywords.some(keyword => normalized.includes(keyword));
+        });
+
+      if (fallback && fallback.textContent) {
+        statusText = fallback.textContent.trim();
+      }
+    }
+
+    const timeElement = element.querySelector('time[datetime]');
+    let lastActivityTime: number | undefined;
+    if (timeElement) {
+      const datetime = timeElement.getAttribute('datetime');
+      if (datetime) {
+        const parsed = Date.parse(datetime);
+        if (!Number.isNaN(parsed)) {
+          lastActivityTime = parsed;
+        }
+      }
+    }
+
+    const normalizedStatus = statusText?.toLowerCase() ?? '';
+    const positiveKeywords = [
+      'new chat',
+      'new snap',
+      'new message',
+      'received',
+      'непрочитано',
+      'непрочитан',
+      'новое сообщение',
+      'новый чат',
+      'получено'
+    ];
+    const negativeKeywords = [
+      'opened',
+      'просмотрено',
+      'просмотрен',
+      'viewed',
+      'sent',
+      'отправлено',
+      'delivered',
+      'seen',
+      'прочитан',
+      'прочитано'
+    ];
+
+    let hasUnread = positiveKeywords.some(keyword => normalizedStatus.includes(keyword));
+
+    if (!hasUnread) {
+      const indicatorSelectors = [
+        '[data-testid*="unread"]',
+        '[aria-label*="unread" i]',
+        '[class*="unread"]',
+        '[class*="New" i]',
+        '[class*="Badge" i]'
+      ];
+
+      hasUnread = indicatorSelectors.some(selector => !!element.querySelector(selector));
+    }
+
+    if (!hasUnread && normalizedStatus && !negativeKeywords.some(keyword => normalizedStatus.includes(keyword))) {
+      if (/(just now|только что|сейчас)/.test(normalizedStatus)) {
+        hasUnread = true;
+      }
+    }
+
+    return {
+      text: statusText,
+      hasUnread,
+      lastActivityTime
+    };
   }
 }

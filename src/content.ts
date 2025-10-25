@@ -174,7 +174,25 @@ class SnapchatBot {
       this.handleNewMessage(event.detail);
     });
 
-    document.addEventListener('snapchat-chat-list-change', () => {
+    document.addEventListener('snapchat-chat-list-change', (event: any) => {
+      const detail = event?.detail;
+
+      if (detail) {
+        if (detail.chatId || detail.title) {
+          this.updateChatMetadata(detail.chatId, detail.title);
+        }
+
+        const normalizedId = this.normalizeIdentifier(detail?.chatId);
+        if (normalizedId) {
+          this.processedChats.delete(normalizedId);
+        }
+
+        const normalizedTitle = this.normalizeIdentifier(detail?.title);
+        if (normalizedTitle) {
+          this.processedChats.delete(normalizedTitle);
+        }
+      }
+
       if (this.isEnabled) {
         this.processPendingChats();
       }
@@ -938,12 +956,29 @@ class SnapchatBot {
 
     try {
       const chatItems = this.detector.getChatListItems();
+      const prioritizedChatItems = [...chatItems].sort((a, b) => {
+        if (a.hasUnread !== b.hasUnread) {
+          return Number(b.hasUnread) - Number(a.hasUnread);
+        }
 
-      for (const chatItem of chatItems) {
+        const aTime = a.lastActivityTime ?? 0;
+        const bTime = b.lastActivityTime ?? 0;
+        return bTime - aTime;
+      });
+
+      for (const chatItem of prioritizedChatItems) {
         const normalizedListId = this.normalizeIdentifier(chatItem.chatId);
+        const shouldForceProcess = chatItem.hasUnread;
 
-        if (this.processedChats.has(normalizedListId) || this.queuedChats.has(normalizedListId)) {
+        if (!shouldForceProcess && (this.processedChats.has(normalizedListId) || this.queuedChats.has(normalizedListId))) {
           continue;
+        }
+
+        if (shouldForceProcess) {
+          this.processedChats.delete(normalizedListId);
+          if (chatItem.title) {
+            this.processedChats.delete(this.normalizeIdentifier(chatItem.title));
+          }
         }
 
         this.updateChatMetadata(chatItem.chatId, chatItem.title);
