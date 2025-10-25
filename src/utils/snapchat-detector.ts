@@ -187,8 +187,12 @@ export class SnapchatDetector {
     const clickable = (element.querySelector('a, button, [role="link"], [role="button"], [data-testid*="conversation"]') as HTMLElement) ||
       (element as HTMLElement);
 
-    const derivedTitle = context?.title ?? this.extractChatTitle(element);
-    const derivedId = this.buildStableChatId(context?.chatId ?? this.extractChatIdentifier(element), derivedTitle, Date.now());
+    const derivedTitle = this.sanitizeChatTitle(context?.title ?? this.extractChatTitle(element));
+    const derivedId = this.buildStableChatId(
+      context?.chatId ?? this.extractChatIdentifier(element),
+      derivedTitle,
+      Date.now()
+    );
     this.activeChatId = derivedId;
 
     try {
@@ -551,20 +555,76 @@ export class SnapchatDetector {
     return id;
   }
 
+  private sanitizeChatTitle(value: string | null | undefined): string {
+    if (!value) {
+      return '';
+    }
+
+    const normalizedOriginal = value.replace(/\s+/g, ' ').trim();
+    if (!normalizedOriginal) {
+      return '';
+    }
+
+    let text = normalizedOriginal;
+
+    text = text.replace(/([a-zа-яё])([A-ZА-ЯЁ])/g, '$1 $2');
+    text = text.replace(/[·•]/g, ' · ');
+
+    const separators = [' · ', ' • ', ' | ', ' — ', ' – '];
+    for (const separator of separators) {
+      const index = text.indexOf(separator);
+      if (index > 0) {
+        text = text.slice(0, index).trim();
+        break;
+      }
+    }
+
+    text = text.replace(/\b(received|opened|delivered|sent|pending|typing|just now|minutes ago|hours ago|days ago|tap to chat|viewed)\b.*$/i, '').trim();
+
+    if (!text) {
+      return normalizedOriginal;
+    }
+
+    return text;
+  }
+
   private extractChatTitle(element: Element): string {
     const titleSelectors = [
-      '[data-testid="chat-title"]', '[data-testid="conversation-title"]', '.chat-title', '.conversation-title',
-      'h1', 'h2', 'h3', '[role="heading"]', '.title', '[class*="title"]'
+      '[data-testid="chat-title"]',
+      '[data-testid="conversation-title"]',
+      '[id^="title-"]',
+      '.mYSR9',
+      '.mYSR9 .nonIntl',
+      '.FiLwP span',
+      '.chat-title',
+      '.conversation-title',
+      'h1',
+      'h2',
+      'h3',
+      '[role="heading"]',
+      '.title',
+      '[class*="title"]'
     ];
-    
+
     for (const selector of titleSelectors) {
       const titleElement = element.querySelector(selector);
       if (titleElement && titleElement.textContent) {
-        return titleElement.textContent.trim();
+        const sanitized = this.sanitizeChatTitle(titleElement.textContent);
+        if (sanitized) {
+          return sanitized;
+        }
       }
     }
-    
-    return element.textContent?.trim() || '';
+
+    const ariaLabel = element.getAttribute('aria-label');
+    if (ariaLabel) {
+      const sanitizedLabel = this.sanitizeChatTitle(ariaLabel);
+      if (sanitizedLabel) {
+        return sanitizedLabel;
+      }
+    }
+
+    return this.sanitizeChatTitle(element.textContent);
   }
 
   private extractChatIdentifier(element: Element): string {
@@ -586,7 +646,8 @@ export class SnapchatDetector {
   }
 
   private buildStableChatId(rawId: string, title: string, index: number): string {
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const sanitizedTitle = this.sanitizeChatTitle(title);
+    const normalizedTitle = sanitizedTitle.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
     return `${rawId}-${normalizedTitle}-${index}`;
   }
 

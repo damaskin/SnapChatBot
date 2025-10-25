@@ -1252,7 +1252,16 @@ class SnapchatBot {
   }
 
   private shouldSkipChat(chatId: string, title: string): boolean {
-    return this.isChatExcluded(chatId) || this.isChatExcluded(title);
+    if (this.isChatExcluded(chatId) || this.isChatExcluded(title)) {
+      return true;
+    }
+
+    const knownTitle = this.getKnownChatTitle(chatId);
+    if (knownTitle && this.isChatExcluded(knownTitle)) {
+      return true;
+    }
+
+    return false;
   }
 
   private async processPendingChats(): Promise<void> {
