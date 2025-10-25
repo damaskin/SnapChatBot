@@ -85,9 +85,10 @@ class GeminiService {
 - Не упоминай, что ты ИИ
 - Отвечай на том же языке, что и собеседник`;
 
-    const conversationHistory = messages.map(msg =>
-      `${msg.sender === 'user' ? 'Пользователь' : 'Ассистент'}: ${msg.text}`
-    ).join('\n');
+    const conversationHistory = messages.map(msg => {
+      const role = msg.sender === 'bot' ? 'Ассистент' : 'Пользователь';
+      return `${role}: ${msg.text}`;
+    }).join('\n');
 
     const prompt = `${systemPrompt}\n\nИстория диалога:\n${conversationHistory}\n\nАссистент:`;
 

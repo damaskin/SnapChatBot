@@ -55,28 +55,37 @@ class SnapchatBot {
   private readonly defaultExcludedUsers = ['my ai', 'team snapchat'];
   private chatMetadata: Map<string, { id: string; title?: string | null }> = new Map();
   private testContext: TestPipelineContext = {};
+  private readonly logPrefix = 'Snapchat Bot:';
 
   constructor() {
-    console.log('Snapchat Bot: Content script загружен на', window.location.href);
+    console.log(`${this.logPrefix} Content script загружен на`, window.location.href);
     // Устанавливаем флаг загрузки для тестирования
     (window as any).snapchatBotLoaded = true;
     this.detector = SnapchatDetector.getInstance();
     this.initialize();
   }
 
+  private log(message: string, details?: Record<string, unknown>): void {
+    if (details && Object.keys(details).length > 0) {
+      console.log(`${this.logPrefix} ${message}`, details);
+    } else {
+      console.log(`${this.logPrefix} ${message}`);
+    }
+  }
+
   private async initialize(): Promise<void> {
     try {
-      console.log('Snapchat Bot: Инициализация на', window.location.href);
+      this.log('Инициализация', { url: window.location.href });
       
       // Проверяем, что мы на Snapchat
       if (!this.isSnapchatPage()) {
-        console.log('Snapchat Bot: Не на странице Snapchat, пропускаем инициализацию');
+        this.log('Не на странице Snapchat, пропускаем инициализацию');
         return;
       }
       
       // Ждем загрузки страницы
       if (document.readyState !== 'complete') {
-        console.log('Snapchat Bot: Страница еще загружается, ждем...');
+        this.log('Страница еще загружается, ждем...');
         await new Promise(resolve => {
           if (document.readyState === 'complete') {
             resolve(void 0);
@@ -92,8 +101,8 @@ class SnapchatBot {
       // Загружаем конфигурацию из storage
       await this.loadConfig();
       
-      console.log('Snapchat Bot: Конфигурация загружена, isEnabled:', this.isEnabled);
-      
+      this.log('Конфигурация загружена', { isEnabled: this.isEnabled });
+
       if (this.isEnabled) {
         // Инициализируем детектор
         this.detector.initialize();
@@ -101,28 +110,28 @@ class SnapchatBot {
         // Подписываемся на события
         this.setupEventListeners();
 
-        console.log('Snapchat Bot: Бот активирован и готов к работе');
+        this.log('Бот активирован и готов к работе');
         this.startChatProcessing();
       } else {
-        console.log('Snapchat Bot: Бот отключен в конфигурации');
+        this.log('Бот отключен в конфигурации');
       }
 
-      console.log('Snapchat Bot: Инициализация завершена успешно');
+      this.log('Инициализация завершена успешно');
     } catch (error) {
-      console.error('Snapchat Bot: Ошибка инициализации:', error);
+      console.error(`${this.logPrefix} Ошибка инициализации:`, error);
     }
   }
 
   private isSnapchatPage(): boolean {
-    const isSnapchat = window.location.hostname.includes('snapchat.com') || 
+    const isSnapchat = window.location.hostname.includes('snapchat.com') ||
                        window.location.hostname.includes('web.snapchat.com');
-    
-    console.log('Snapchat Bot: Проверка страницы:', {
+
+    this.log('Проверка страницы', {
       hostname: window.location.hostname,
       url: window.location.href,
-      isSnapchat: isSnapchat
+      isSnapchat
     });
-    
+
     return isSnapchat;
   }
 
@@ -142,7 +151,7 @@ class SnapchatBot {
           model: 'gemini-2.5-flash' // Принудительно используем правильную модель
         };
         geminiService.initialize(config);
-        console.log('Gemini initialized with saved config (model updated to gemini-2.5-flash)');
+        this.log('Gemini инициализирован сохраненной конфигурацией (модель обновлена до gemini-2.5-flash)');
       } else {
         // Инициализируем Gemini с настройками по умолчанию
         const defaultGeminiConfig = {
@@ -154,7 +163,7 @@ class SnapchatBot {
           topK: 40
         };
         geminiService.initialize(defaultGeminiConfig);
-        console.log('Gemini initialized with default settings');
+        this.log('Gemini инициализирован настройками по умолчанию');
       }
 
       if (result.firebaseConfig) {
@@ -166,7 +175,7 @@ class SnapchatBot {
         await this.loadAgent(this.config.selectedAgentId);
       }
     } catch (error) {
-      console.error('Failed to load config:', error);
+      console.error(`${this.logPrefix} Failed to load config:`, error);
     }
   }
 
@@ -182,13 +191,13 @@ class SnapchatBot {
           const firebaseAgents = await firebaseService.getAIAgents();
           agent = firebaseAgents.find(item => item.id === agentId) || null;
         } catch (firebaseError) {
-          console.warn('Failed to load agent from Firebase, falling back to local storage only:', firebaseError);
+          console.warn(`${this.logPrefix} Не удалось загрузить агента из Firebase, используем локальное хранилище:`, firebaseError);
         }
       }
 
       this.currentAgent = agent;
     } catch (error) {
-      console.error('Failed to load agent:', error);
+      console.error(`${this.logPrefix} Failed to load agent:`, error);
       this.currentAgent = null;
     }
   }
@@ -272,12 +281,12 @@ class SnapchatBot {
     }
 
     if (!message.text || message.text.trim().length === 0) {
-      console.log('Snapchat Bot: Пропускаем пустое сообщение');
+      this.log('Пропускаем пустое сообщение');
       return;
     }
 
     if (this.isSystemMessage(message.text)) {
-      console.log('Snapchat Bot: Пропускаем системное сообщение:', message.text);
+      this.log('Пропускаем системное сообщение', { text: message.text });
       return;
     }
 
@@ -291,7 +300,7 @@ class SnapchatBot {
     const knownTitle = this.getKnownChatTitle(message.chatId) || activeChatInfo?.title || null;
 
     if (this.isChatExcluded(message.chatId) || (knownTitle && this.isChatExcluded(knownTitle))) {
-      console.log('Snapchat Bot: Пропускаем чат из списка исключений:', knownTitle || message.chatId);
+      this.log('Пропускаем чат из списка исключений', { chatId: message.chatId, title: knownTitle });
       return;
     }
 
@@ -306,19 +315,19 @@ class SnapchatBot {
       const shouldRespond = await this.shouldRespondToIncomingMessage(message);
 
       if (!shouldRespond) {
-        console.log('Snapchat Bot: Решено не отвечать на сообщение', message.chatId);
+        this.log('Решено не отвечать на сообщение', { chatId: message.chatId });
         return;
       }
 
       const queueLength = this.enqueueChatResponse(message.chatId, message.timestamp);
-      console.log('Snapchat Bot: Сообщение добавлено в очередь ответа', { chatId: message.chatId, queueLength });
+      this.log('Сообщение добавлено в очередь ответа', { chatId: message.chatId, queueLength });
 
       await this.updateStatistics({
         queueLength,
         activeChats: this.chatSessions.size
       });
     } catch (error) {
-      console.error('Error handling new message:', error);
+      console.error(`${this.logPrefix} Ошибка обработки входящего сообщения:`, error);
       await this.updateStatistics({
         lastError: error instanceof Error ? error.message : String(error),
         errorOccurred: true
@@ -355,6 +364,26 @@ class SnapchatBot {
     }
   }
 
+  private addBotResponseToHistory(chatId: string, text: string): void {
+    const history = this.chatSessions.get(chatId) || [];
+    const responseMessage: ChatMessage = {
+      id: `${chatId}-bot-${Date.now()}`,
+      text,
+      sender: 'bot',
+      timestamp: Date.now(),
+      chatId,
+      isRead: true
+    };
+
+    history.push(responseMessage);
+
+    if (history.length > 50) {
+      history.splice(0, history.length - 50);
+    }
+
+    this.chatSessions.set(chatId, history);
+  }
+
   private async shouldRespondToIncomingMessage(message: {
     text: string;
     sender: 'user' | 'other';
@@ -362,6 +391,11 @@ class SnapchatBot {
     chatId: string;
   }): Promise<boolean> {
     if (!this.config) {
+      return false;
+    }
+
+    if (this.config.autoReply === false) {
+      this.log('Автоответ отключен в настройках, пропускаем сообщение', { chatId: message.chatId });
       return false;
     }
 
@@ -374,26 +408,44 @@ class SnapchatBot {
     const isGreeting = /^(привет|hi|hello|hey|здравствуй|добрый|ку|салют)/.test(normalizedText);
 
     if (hasKeyword || isQuestion || isGreeting) {
+      this.log('Решено ответить по эвристике', {
+        chatId: message.chatId,
+        hasKeyword,
+        isQuestion,
+        isGreeting
+      });
       return true;
     }
 
     if (!this.canUseGeminiAnalysis()) {
-      return false;
+      this.log('Gemini анализ недоступен, отвечаем по умолчанию', { chatId: message.chatId });
+      return true;
     }
 
     this.registerAnalysisRequest();
 
     try {
       const analysis = await geminiService.analyzeMessage(message.text, this.config.keywords);
-      return !!analysis.shouldRespond;
+      this.log('Результат анализа Gemini', {
+        chatId: message.chatId,
+        shouldRespond: analysis.shouldRespond,
+        sentiment: analysis.sentiment
+      });
+
+      if (analysis.shouldRespond === false) {
+        this.log('Gemini рекомендует не отвечать на сообщение', { chatId: message.chatId });
+      }
+
+      return analysis.shouldRespond ?? true;
     } catch (error) {
-      console.error('Error analyzing message with Gemini:', error);
+      console.error(`${this.logPrefix} Error analyzing message with Gemini:`, error);
       this.handleGeminiRateLimit(error);
       await this.updateStatistics({
         lastError: error instanceof Error ? error.message : String(error),
         errorOccurred: true
       });
-      return false;
+      this.log('Ошибка анализа Gemini, отвечаем по умолчанию', { chatId: message.chatId });
+      return true;
     }
   }
 
@@ -402,7 +454,7 @@ class SnapchatBot {
     lastMessageTimestamp?: number
   ): Promise<{ success: boolean; responseTimeMs?: number; error?: string; shouldRetry?: boolean; retryAfterMs?: number }> {
     if (!this.currentAgent) {
-      console.error('No AI agent selected');
+      console.error(`${this.logPrefix} No AI agent selected`);
       return { success: false, error: 'No AI agent selected' };
     }
 
@@ -416,41 +468,54 @@ class SnapchatBot {
         return { success: false, error: 'No unread messages' };
       }
 
+      const recentConversation = chatHistory.slice(-50);
+      const conversationForAI: ChatMessage[] = recentConversation.map(message => ({
+        ...message,
+        sender: message.sender === 'other' ? 'user' : 'bot'
+      }));
+
+      this.log('Отправляем историю в Gemini', {
+        chatId,
+        totalMessages: conversationForAI.length,
+        unreadMessages: unreadMessages.length
+      });
+
       const latestTimestamp = lastMessageTimestamp ?? unreadMessages[unreadMessages.length - 1].timestamp ?? Date.now();
 
       let response: string | null = null;
 
       try {
         response = await geminiService.generateResponse(
-          unreadMessages,
+          conversationForAI,
           this.currentAgent,
           this.getChatContext(chatId)
         );
-        console.log('Ответ от Gemini:', response);
+        this.log('Получен ответ от Gemini', { chatId, hasResponse: !!response });
       } catch (geminiError) {
         this.handleGeminiRateLimit(geminiError);
-        console.log('Gemini недоступен, пробуем Hugging Face...');
+        this.log('Gemini недоступен, пробуем Hugging Face', { chatId });
 
         try {
           response = await huggingFaceService.generateResponse(
-            unreadMessages,
+            conversationForAI,
             this.currentAgent,
             this.getChatContext(chatId)
           );
-          console.log('Ответ от Hugging Face:', response);
+          this.log('Получен ответ от Hugging Face', { chatId, hasResponse: !!response });
         } catch (hfError) {
-          console.log('Hugging Face недоступен, используем простой ИИ...');
+          this.log('Hugging Face недоступен, используем простой ИИ', { chatId });
 
           response = await simpleAIService.generateResponse(
-            unreadMessages,
+            conversationForAI,
             this.currentAgent,
             this.getChatContext(chatId)
           );
-          console.log('Ответ от простого ИИ:', response);
+          this.log('Получен ответ от простого ИИ', { chatId, hasResponse: !!response });
         }
       }
 
       if (!response) {
+        this.log('Не удалось получить ответ ни от одной модели', { chatId });
         return { success: false, error: 'Не удалось сгенерировать ответ' };
       }
 
@@ -458,6 +523,8 @@ class SnapchatBot {
       if (delay > 0) {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
+
+      this.log('Пробуем отправить сообщение', { chatId, textLength: response.length });
 
       const success = await this.detector.sendMessage(response);
 
@@ -469,12 +536,16 @@ class SnapchatBot {
         const responseTimeMs = Date.now() - latestTimestamp;
         this.processedChats.add(this.normalizeIdentifier(chatId));
 
+        this.addBotResponseToHistory(chatId, response);
+        this.log('Сообщение успешно отправлено', { chatId, responseTimeMs });
+
         return { success: true, responseTimeMs };
       }
 
+      this.log('Не удалось отправить сообщение', { chatId });
       return { success: false, error: 'Не удалось отправить сообщение' };
     } catch (error) {
-      console.error('Error generating response:', error);
+      console.error(`${this.logPrefix} Ошибка генерации ответа:`, error);
       const message = error instanceof Error ? error.message : String(error);
       const shouldRetry = this.isRateLimitError(error);
       const retryAfterMs = shouldRetry ? this.extractRetryAfterMs(message) : undefined;
@@ -531,9 +602,11 @@ class SnapchatBot {
     const configExcluded = this.config?.excludedUsers ?? [];
     const combined = [...this.defaultExcludedUsers, ...configExcluded];
 
-    return combined
+    const normalized = combined
       .map(value => this.normalizeIdentifier(value))
       .filter(value => value.length > 0);
+
+    return Array.from(new Set(normalized));
   }
 
   private normalizeIdentifier(value: string | undefined | null): string {
@@ -551,7 +624,11 @@ class SnapchatBot {
       return false;
     }
 
-    return this.getExcludedIdentifiers().includes(normalized);
+    const excluded = this.getExcludedIdentifiers();
+
+    return excluded.some(identifier =>
+      normalized === identifier || (identifier.length > 0 && normalized.includes(identifier))
+    );
   }
 
 
@@ -581,7 +658,7 @@ class SnapchatBot {
     this.queueProcessingTimer = window.setTimeout(() => {
       this.queueProcessingTimer = null;
       this.processResponseQueue().catch(error => {
-        console.error('Snapchat Bot: Ошибка обработки очереди ответов:', error);
+        console.error(`${this.logPrefix} Ошибка обработки очереди ответов:`, error);
       });
     }, Math.max(delay, 0));
   }
@@ -615,7 +692,7 @@ class SnapchatBot {
 
       if (this.responsesInCurrentWindow >= this.RESPONSE_RATE_LIMIT_PER_MINUTE) {
         const waitTime = Math.max(this.RATE_LIMIT_WINDOW_MS - (now - this.rateLimitWindowStart), this.MIN_RESPONSE_INTERVAL_MS);
-        console.log('Snapchat Bot: Достигнут лимит ответов, ожидаем', waitTime, 'мс');
+        this.log('Достигнут лимит ответов, устанавливаем паузу', { waitTime });
         this.scheduleQueueProcessing(waitTime);
         await this.updateStatistics({ queueLength: this.pendingResponseQueue.length });
         return;
@@ -676,7 +753,7 @@ class SnapchatBot {
           lastError: errorMessage,
           errorOccurred: true
         });
-        console.log('Snapchat Bot: Повторная попытка ответа через', retryDelay, 'мс');
+        this.log('Повторная попытка ответа запланирована', { chatId: task.chatId, retryDelay });
         this.scheduleQueueProcessing(retryDelay);
         return;
       }
@@ -707,7 +784,7 @@ class SnapchatBot {
     const message = error instanceof Error ? error.message : String(error);
     const retryAfterMs = this.extractRetryAfterMs(message) ?? this.RATE_LIMIT_WINDOW_MS;
     this.analysisBlockedUntil = Date.now() + retryAfterMs;
-    console.warn('Snapchat Bot: Получен ответ о превышении лимита, блокируем анализ на', retryAfterMs, 'мс');
+    console.warn(`${this.logPrefix} Получен ответ о превышении лимита, блокируем анализ на ${retryAfterMs} мс`);
   }
 
   private isRateLimitError(error: unknown): boolean {
@@ -1253,11 +1330,13 @@ class SnapchatBot {
 
   private shouldSkipChat(chatId: string, title: string): boolean {
     if (this.isChatExcluded(chatId) || this.isChatExcluded(title)) {
+      this.log('Чат пропущен по списку исключений', { chatId, title });
       return true;
     }
 
     const knownTitle = this.getKnownChatTitle(chatId);
     if (knownTitle && this.isChatExcluded(knownTitle)) {
+      this.log('Чат пропущен по известному названию из исключений', { chatId, title: knownTitle });
       return true;
     }
 
@@ -1273,6 +1352,7 @@ class SnapchatBot {
 
     try {
       const chatItems = this.detector.getChatListItems();
+      this.log('Начинаем обход чатов', { totalChats: chatItems.length });
       const prioritizedChatItems = [...chatItems].sort((a, b) => {
         if (a.hasUnread !== b.hasUnread) {
           return Number(b.hasUnread) - Number(a.hasUnread);
@@ -1309,6 +1389,7 @@ class SnapchatBot {
         const isLoaded = await this.detector.waitForChatToLoad();
 
         if (!isLoaded) {
+          this.log('Не удалось загрузить чат', { chatId: chatItem.chatId, title: chatItem.title });
           continue;
         }
 
@@ -1318,8 +1399,13 @@ class SnapchatBot {
         }
 
         const messages = await this.detector.collectChatMessages(50);
+        this.log('Собраны сообщения из чата', {
+          chatId: activeChatInfo?.chatId || chatItem.chatId,
+          collectedMessages: messages.length
+        });
 
         if (messages.length === 0) {
+          this.log('Сообщения в чате не найдены', { chatId: chatItem.chatId, title: chatItem.title });
           this.processedChats.add(normalizedListId);
           continue;
         }
@@ -1331,6 +1417,10 @@ class SnapchatBot {
         this.updateChatMetadata(resolvedChatId, resolvedTitle);
 
         this.syncChatHistory(resolvedChatId, messages);
+        this.log('История чата синхронизирована', {
+          chatId: resolvedChatId,
+          storedMessages: (this.chatSessions.get(resolvedChatId) || []).length
+        });
 
         if (!this.hasUnansweredMessage(resolvedChatId)) {
           this.processedChats.add(normalizedListId);
@@ -1351,7 +1441,14 @@ class SnapchatBot {
             continue;
           }
 
+          this.log('Чат выбран для ответа', {
+            chatId: resolvedChatId,
+            title: resolvedTitle,
+            unreadMessages: messages.filter(msg => msg.sender === 'other').length
+          });
+
           const queueLength = this.enqueueChatResponse(resolvedChatId, lastMessage.timestamp);
+          this.log('Чат добавлен в очередь на ответ', { chatId: resolvedChatId, queueLength });
           await this.updateStatistics({
             queueLength,
             activeChats: this.chatSessions.size
@@ -1362,7 +1459,7 @@ class SnapchatBot {
         }
       }
     } catch (error) {
-      console.error('Snapchat Bot: Ошибка при обработке чатов:', error);
+      console.error(`${this.logPrefix} Ошибка при обработке чатов:`, error);
     } finally {
       this.isProcessingChats = false;
     }
