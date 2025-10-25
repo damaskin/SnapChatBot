@@ -433,15 +433,90 @@ export class SnapchatDetector {
 
   private determineSender(element: Element): 'user' | 'other' {
     const userIndicators = [
-      '[data-testid*="user"]', '[class*="user"]', '[class*="sent"]', '[class*="outgoing"]'
+      '[data-testid*="user"]',
+      '[class*="user"]',
+      '[class*="sent"]',
+      '[class*="outgoing"]',
+      '[data-sender="self"]'
     ];
-    
+
     for (const indicator of userIndicators) {
       if (element.closest(indicator)) {
         return 'user';
       }
     }
-    
+
+    const bubbleElement = element.closest('[data-testid*="message"], li, .KB4Aq, .chat-message, .message') || element;
+
+    const resolveLabel = (node: Element | null): string | null => {
+      if (!node) {
+        return null;
+      }
+
+      const labelCandidate = node.querySelector('header .nonIntl, header span, [data-testid*="sender"]');
+      const labelText = labelCandidate?.textContent?.trim();
+
+      if (labelText && labelText.length > 0) {
+        return labelText.toLowerCase();
+      }
+
+      const ariaLabel = node.getAttribute('aria-label');
+      if (ariaLabel && ariaLabel.trim().length > 0) {
+        return ariaLabel.trim().toLowerCase();
+      }
+
+      return null;
+    };
+
+    const senderLabel = resolveLabel(bubbleElement);
+    const userLabelIndicators = ['me', 'я'];
+
+    if (senderLabel && userLabelIndicators.some(label => senderLabel === label || senderLabel.startsWith(`${label} `))) {
+      return 'user';
+    }
+
+    const bubble = (bubbleElement.matches('.KB4Aq') ? bubbleElement : bubbleElement.querySelector('.KB4Aq')) as HTMLElement | null;
+
+    const isUserColor = (color: string | null | undefined): boolean => {
+      if (!color) {
+        return false;
+      }
+
+      const normalized = color.toLowerCase();
+      return normalized.includes('242, 60, 87') || normalized.includes('#f23c57');
+    };
+
+    const isOtherColor = (color: string | null | undefined): boolean => {
+      if (!color) {
+        return false;
+      }
+
+      const normalized = color.toLowerCase();
+      return normalized.includes('14, 173, 255') || normalized.includes('#0eadff');
+    };
+
+    if (bubble) {
+      const inlineStyle = bubble.getAttribute('style') || '';
+      if (isUserColor(inlineStyle)) {
+        return 'user';
+      }
+      if (isOtherColor(inlineStyle)) {
+        return 'other';
+      }
+
+      try {
+        const computed = window.getComputedStyle(bubble);
+        if (isUserColor(computed.borderColor) || isUserColor(computed.backgroundColor)) {
+          return 'user';
+        }
+        if (isOtherColor(computed.borderColor) || isOtherColor(computed.backgroundColor)) {
+          return 'other';
+        }
+      } catch (error) {
+        console.debug('SnapchatDetector: Не удалось получить вычисленные стили пузыря сообщения', error);
+      }
+    }
+
     return 'other';
   }
 
