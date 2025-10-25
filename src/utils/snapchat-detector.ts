@@ -101,9 +101,11 @@ export class SnapchatDetector {
     // Ищем список чатов
     const selectors = [
       '[data-testid="chat-list"]',
+      '[data-testid="conversation-list"]',
       '.chat-list',
-      '[role="list"]',
-      '.conversation-list'
+      '.conversation-list',
+      '.ReactVirtualized__Grid__innerScrollContainer',
+      '[role="list"]'
     ];
 
     for (const selector of selectors) {
@@ -353,12 +355,18 @@ export class SnapchatDetector {
   }
 
   async openChat(element: Element, context?: { chatId?: string; title?: string | null }): Promise<void> {
-    const clickable = (element.querySelector('a, button, [role="link"], [data-testid*="conversation"]') as HTMLElement) ||
+    const clickable = (element.querySelector('a, button, [role="link"], [role="button"], [data-testid*="conversation"]') as HTMLElement) ||
       (element as HTMLElement);
 
     const derivedTitle = context?.title ?? this.extractChatTitle(element);
     const derivedId = this.buildStableChatId(context?.chatId ?? this.extractChatIdentifier(element), derivedTitle, Date.now());
     this.activeChatId = derivedId;
+
+    try {
+      clickable.scrollIntoView({ behavior: 'auto', block: 'center' });
+    } catch (error) {
+      console.debug('SnapchatDetector: scrollIntoView не удался, продолжаем без прокрутки', error);
+    }
 
     ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, view: window });
@@ -412,81 +420,120 @@ export class SnapchatDetector {
   // Методы для отправки сообщений
   async sendMessage(text: string): Promise<boolean> {
     try {
-      // Ищем поле ввода сообщения
-      const inputSelectors = [
-        '[data-testid="message-input"]',
-        'input[type="text"]',
-        'textarea',
-        '[contenteditable="true"]',
-        '.message-input'
-      ];
+      const candidateInputs = Array.from(document.querySelectorAll<HTMLElement>(
+        '[placeholder], [data-testid], [contenteditable="true"], textarea, input'
+      ));
 
-      let inputElement: HTMLElement | HTMLInputElement | HTMLTextAreaElement | null = null;
+      const inputElement = candidateInputs.find((element) => {
+        const placeholder = (element.getAttribute('placeholder') || '').toLowerCase();
+        const dataTestId = (element.getAttribute('data-testid') || '').toLowerCase();
+        const role = (element.getAttribute('role') || '').toLowerCase();
 
-      for (const selector of inputSelectors) {
-        inputElement = document.querySelector(selector) as HTMLElement | HTMLInputElement | HTMLTextAreaElement;
-        if (inputElement) break;
-      }
+        if (placeholder.includes('search')) {
+          return false;
+        }
+
+        if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
+          return true;
+        }
+
+        if (dataTestId.includes('chat-input') || dataTestId.includes('composer') || dataTestId.includes('message-input')) {
+          return true;
+        }
+
+        if (role === 'textbox' && element.isContentEditable) {
+          const composer = element.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h');
+          return !!composer;
+        }
+
+        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+          return element.type === 'text' || element.tagName.toLowerCase() === 'textarea';
+        }
+
+        return false;
+      });
 
       if (!inputElement) {
         console.error('Не найдено поле ввода сообщения');
         return false;
       }
 
-      // Вводим текст
       inputElement.focus();
 
-      if ('value' in inputElement) {
-        const inputField = inputElement as HTMLInputElement | HTMLTextAreaElement;
-        const prototype = Object.getPrototypeOf(inputField);
+      if (inputElement instanceof HTMLInputElement || inputElement instanceof HTMLTextAreaElement) {
+        const prototype = Object.getPrototypeOf(inputElement);
         const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-
         if (valueSetter) {
-          valueSetter.call(inputField, text);
+          valueSetter.call(inputElement, text);
         } else {
-          inputField.value = text;
+          inputElement.value = text;
         }
       } else if (inputElement.isContentEditable) {
         inputElement.textContent = text;
       } else {
-        (inputElement as HTMLElement).textContent = text;
+        inputElement.textContent = text;
       }
 
-      // Триггерим события для React/Vue
       const inputEvent = new InputEvent('input', { bubbles: true, data: text });
       inputElement.dispatchEvent(inputEvent);
+      const changeEvent = new Event('change', { bubbles: true });
+      inputElement.dispatchEvent(changeEvent);
 
-      ['change'].forEach(eventType => {
-        const event = new Event(eventType, { bubbles: true });
-        inputElement.dispatchEvent(event);
-      });
-
-      // Ищем кнопку отправки
+      const composer = inputElement.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h, form, [role="form"]');
       const sendButtonSelectors = [
         '[data-testid="send-button"]',
-        'button[type="submit"]',
-        '.send-button'
+        'button[data-testid*="send"]',
+        'button[aria-label*="send" i]',
+        'button[type="submit"]'
       ];
 
       let sendButton: HTMLButtonElement | null = null;
 
-      for (const selector of sendButtonSelectors) {
-        sendButton = document.querySelector(selector) as HTMLButtonElement;
-        if (sendButton) break;
+      if (composer) {
+        for (const selector of sendButtonSelectors) {
+          const found = composer.querySelector(selector) as HTMLButtonElement | null;
+          if (found) {
+            sendButton = found;
+            break;
+          }
+        }
+
+        if (!sendButton) {
+          const possibleButtons = Array.from(composer.querySelectorAll('button')) as HTMLButtonElement[];
+          sendButton = possibleButtons.find((button) => {
+            if (!button.offsetParent) {
+              return false;
+            }
+            const label = (button.getAttribute('aria-label') || '').toLowerCase();
+            if (label.includes('attach') || label.includes('emoji') || label.includes('sticker')) {
+              return false;
+            }
+            const hasArrowSvg = button.querySelector('svg path[d*="13.536"], svg path[d*="M13.5"], svg.zfQr6');
+            if (hasArrowSvg) {
+              return true;
+            }
+            const textContent = (button.textContent || '').trim();
+            return textContent.length === 0;
+          }) || null;
+        }
       }
 
       if (!sendButton) {
-        const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-        sendButton = buttons.find((button) => {
-          const textContent = button.textContent || '';
-          return /send|отправить/i.test(textContent);
-        }) || null;
+        for (const selector of sendButtonSelectors) {
+          const found = document.querySelector(selector) as HTMLButtonElement | null;
+          if (found && (!composer || composer.contains(found))) {
+            sendButton = found;
+            break;
+          }
+        }
       }
 
       if (sendButton) {
-        sendButton.click();
+        ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((eventType) => {
+          const event = new MouseEvent(eventType, { bubbles: true, cancelable: true, view: window });
+          sendButton.dispatchEvent(event);
+        });
       } else {
-        // Пробуем отправить через Enter
         ['keydown', 'keypress', 'keyup'].forEach(eventType => {
           const event = new KeyboardEvent(eventType, {
             key: 'Enter',
