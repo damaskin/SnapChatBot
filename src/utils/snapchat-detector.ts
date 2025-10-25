@@ -2,6 +2,9 @@ interface ChatListItemInfo {
   element: Element;
   chatId: string;
   title: string;
+  statusText: string | null;
+  hasUnread: boolean;
+  lastActivityTime?: number;
 }
 
 export class SnapchatDetector {
@@ -55,13 +58,24 @@ export class SnapchatDetector {
         mutations.forEach((mutation) => {
           if (mutation.type === 'childList') {
             this.handleChatListChanges(mutation.addedNodes);
+            this.handleChatListChanges(mutation.removedNodes);
+            return;
+          }
+
+          if (mutation.type === 'attributes' || mutation.type === 'characterData') {
+            const element = this.resolveChatListItemElement(mutation.target);
+            if (element) {
+              this.processChatListChange(element);
+            }
           }
         });
       });
 
       observer.observe(chatList, {
         childList: true,
-        subtree: true
+        subtree: true,
+        attributes: true,
+        characterData: true
       });
 
       this.observers.push(observer);
@@ -101,9 +115,11 @@ export class SnapchatDetector {
     // Ищем список чатов
     const selectors = [
       '[data-testid="chat-list"]',
+      '[data-testid="conversation-list"]',
       '.chat-list',
-      '[role="list"]',
-      '.conversation-list'
+      '.conversation-list',
+      '.ReactVirtualized__Grid__innerScrollContainer',
+      '[role="list"]'
     ];
 
     for (const selector of selectors) {
@@ -127,14 +143,36 @@ export class SnapchatDetector {
     });
   }
 
-  private handleChatListChanges(addedNodes: NodeList): void {
+  private handleChatListChanges(nodes: NodeList): void {
     // Обрабатываем изменения в списке чатов
-    addedNodes.forEach((node) => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const element = node as Element;
+    nodes.forEach((node) => {
+      const element = this.resolveChatListItemElement(node);
+      if (element) {
         this.processChatListChange(element);
       }
     });
+  }
+
+  private resolveChatListItemElement(node: Node | null): Element | null {
+    if (!node) {
+      return null;
+    }
+
+    const element = node instanceof Element ? node : node.parentElement;
+    if (!element) {
+      return null;
+    }
+
+    const selector = [
+      '[role="listitem"]',
+      '[data-testid*="list-item"]',
+      '[data-testid*="conversation-list-item"]',
+      '.conversation-item',
+      '.chat-list-item',
+      '.O4POs'
+    ].join(',');
+
+    return element.closest(selector);
   }
 
   private extractMessagesFromElement(element: Element): Array<{
@@ -311,8 +349,19 @@ export class SnapchatDetector {
 
   private processChatListChange(element: Element): void {
     // Обрабатываем изменения в списке чатов
+    const statusInfo = this.extractChatStatus(element);
+    const title = this.extractChatTitle(element);
+    const chatId = this.extractChatIdentifier(element);
+
     const event = new CustomEvent('snapchat-chat-list-change', {
-      detail: { element }
+      detail: {
+        element,
+        chatId,
+        title,
+        statusText: statusInfo.text,
+        hasUnread: statusInfo.hasUnread,
+        lastActivityTime: statusInfo.lastActivityTime ?? null
+      }
     });
     document.dispatchEvent(event);
   }
@@ -337,11 +386,15 @@ export class SnapchatDetector {
           const title = this.extractChatTitle(element);
           const rawId = this.extractChatIdentifier(element);
           const chatId = this.buildStableChatId(rawId, title, index);
+          const statusInfo = this.extractChatStatus(element);
 
           items.set(element, {
             element,
             chatId,
-            title: title || chatId
+            title: title || chatId,
+            statusText: statusInfo.text,
+            hasUnread: statusInfo.hasUnread,
+            lastActivityTime: statusInfo.lastActivityTime
           });
 
           index += 1;
@@ -353,12 +406,18 @@ export class SnapchatDetector {
   }
 
   async openChat(element: Element, context?: { chatId?: string; title?: string | null }): Promise<void> {
-    const clickable = (element.querySelector('a, button, [role="link"], [data-testid*="conversation"]') as HTMLElement) ||
+    const clickable = (element.querySelector('a, button, [role="link"], [role="button"], [data-testid*="conversation"]') as HTMLElement) ||
       (element as HTMLElement);
 
     const derivedTitle = context?.title ?? this.extractChatTitle(element);
     const derivedId = this.buildStableChatId(context?.chatId ?? this.extractChatIdentifier(element), derivedTitle, Date.now());
     this.activeChatId = derivedId;
+
+    try {
+      clickable.scrollIntoView({ behavior: 'auto', block: 'center' });
+    } catch (error) {
+      console.debug('SnapchatDetector: scrollIntoView не удался, продолжаем без прокрутки', error);
+    }
 
     ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((type) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, view: window });
@@ -412,81 +471,120 @@ export class SnapchatDetector {
   // Методы для отправки сообщений
   async sendMessage(text: string): Promise<boolean> {
     try {
-      // Ищем поле ввода сообщения
-      const inputSelectors = [
-        '[data-testid="message-input"]',
-        'input[type="text"]',
-        'textarea',
-        '[contenteditable="true"]',
-        '.message-input'
-      ];
+      const candidateInputs = Array.from(document.querySelectorAll<HTMLElement>(
+        '[placeholder], [data-testid], [contenteditable="true"], textarea, input'
+      ));
 
-      let inputElement: HTMLElement | HTMLInputElement | HTMLTextAreaElement | null = null;
+      const inputElement = candidateInputs.find((element) => {
+        const placeholder = (element.getAttribute('placeholder') || '').toLowerCase();
+        const dataTestId = (element.getAttribute('data-testid') || '').toLowerCase();
+        const role = (element.getAttribute('role') || '').toLowerCase();
 
-      for (const selector of inputSelectors) {
-        inputElement = document.querySelector(selector) as HTMLElement | HTMLInputElement | HTMLTextAreaElement;
-        if (inputElement) break;
-      }
+        if (placeholder.includes('search')) {
+          return false;
+        }
+
+        if (placeholder.includes('send a chat') || placeholder.includes('send a message') || placeholder.includes('type a message')) {
+          return true;
+        }
+
+        if (dataTestId.includes('chat-input') || dataTestId.includes('composer') || dataTestId.includes('message-input')) {
+          return true;
+        }
+
+        if (role === 'textbox' && element.isContentEditable) {
+          const composer = element.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h');
+          return !!composer;
+        }
+
+        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+          return element.type === 'text' || element.tagName.toLowerCase() === 'textarea';
+        }
+
+        return false;
+      });
 
       if (!inputElement) {
         console.error('Не найдено поле ввода сообщения');
         return false;
       }
 
-      // Вводим текст
       inputElement.focus();
 
-      if ('value' in inputElement) {
-        const inputField = inputElement as HTMLInputElement | HTMLTextAreaElement;
-        const prototype = Object.getPrototypeOf(inputField);
+      if (inputElement instanceof HTMLInputElement || inputElement instanceof HTMLTextAreaElement) {
+        const prototype = Object.getPrototypeOf(inputElement);
         const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-
         if (valueSetter) {
-          valueSetter.call(inputField, text);
+          valueSetter.call(inputElement, text);
         } else {
-          inputField.value = text;
+          inputElement.value = text;
         }
       } else if (inputElement.isContentEditable) {
         inputElement.textContent = text;
       } else {
-        (inputElement as HTMLElement).textContent = text;
+        inputElement.textContent = text;
       }
 
-      // Триггерим события для React/Vue
       const inputEvent = new InputEvent('input', { bubbles: true, data: text });
       inputElement.dispatchEvent(inputEvent);
+      const changeEvent = new Event('change', { bubbles: true });
+      inputElement.dispatchEvent(changeEvent);
 
-      ['change'].forEach(eventType => {
-        const event = new Event(eventType, { bubbles: true });
-        inputElement.dispatchEvent(event);
-      });
-
-      // Ищем кнопку отправки
+      const composer = inputElement.closest('[data-testid*="composer"], [data-testid*="chat"], .shMO3, .jh13h, form, [role="form"]');
       const sendButtonSelectors = [
         '[data-testid="send-button"]',
-        'button[type="submit"]',
-        '.send-button'
+        'button[data-testid*="send"]',
+        'button[aria-label*="send" i]',
+        'button[type="submit"]'
       ];
 
       let sendButton: HTMLButtonElement | null = null;
 
-      for (const selector of sendButtonSelectors) {
-        sendButton = document.querySelector(selector) as HTMLButtonElement;
-        if (sendButton) break;
+      if (composer) {
+        for (const selector of sendButtonSelectors) {
+          const found = composer.querySelector(selector) as HTMLButtonElement | null;
+          if (found) {
+            sendButton = found;
+            break;
+          }
+        }
+
+        if (!sendButton) {
+          const possibleButtons = Array.from(composer.querySelectorAll('button')) as HTMLButtonElement[];
+          sendButton = possibleButtons.find((button) => {
+            if (!button.offsetParent) {
+              return false;
+            }
+            const label = (button.getAttribute('aria-label') || '').toLowerCase();
+            if (label.includes('attach') || label.includes('emoji') || label.includes('sticker')) {
+              return false;
+            }
+            const hasArrowSvg = button.querySelector('svg path[d*="13.536"], svg path[d*="M13.5"], svg.zfQr6');
+            if (hasArrowSvg) {
+              return true;
+            }
+            const textContent = (button.textContent || '').trim();
+            return textContent.length === 0;
+          }) || null;
+        }
       }
 
       if (!sendButton) {
-        const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-        sendButton = buttons.find((button) => {
-          const textContent = button.textContent || '';
-          return /send|отправить/i.test(textContent);
-        }) || null;
+        for (const selector of sendButtonSelectors) {
+          const found = document.querySelector(selector) as HTMLButtonElement | null;
+          if (found && (!composer || composer.contains(found))) {
+            sendButton = found;
+            break;
+          }
+        }
       }
 
       if (sendButton) {
-        sendButton.click();
+        ['mouseover', 'mousedown', 'mouseup', 'click'].forEach((eventType) => {
+          const event = new MouseEvent(eventType, { bubbles: true, cancelable: true, view: window });
+          sendButton.dispatchEvent(event);
+        });
       } else {
-        // Пробуем отправить через Enter
         ['keydown', 'keypress', 'keyup'].forEach(eventType => {
           const event = new KeyboardEvent(eventType, {
             key: 'Enter',
@@ -603,5 +701,118 @@ export class SnapchatDetector {
     }
 
     return null;
+  }
+
+  private extractChatStatus(element: Element): { text: string | null; hasUnread: boolean; lastActivityTime?: number } {
+    const statusSelectors = [
+      '[id^="status-"]',
+      '[data-testid*="status"]',
+      '[class*="status"]',
+      '[aria-label*="status" i]',
+      '[aria-live]'
+    ];
+
+    let statusText: string | null = null;
+
+    for (const selector of statusSelectors) {
+      const candidate = element.querySelector(selector);
+      if (candidate && candidate.textContent?.trim()) {
+        statusText = candidate.textContent.trim();
+        break;
+      }
+    }
+
+    if (!statusText) {
+      const keywords = [
+        'new chat',
+        'new snap',
+        'new message',
+        'received',
+        'непрочитан',
+        'непрочитано',
+        'новое',
+        'новый чат',
+        'только что',
+        'just now'
+      ];
+
+      const fallback = Array.from(element.querySelectorAll('span, div'))
+        .find(node => {
+          const text = node.textContent?.trim();
+          if (!text) {
+            return false;
+          }
+
+          const normalized = text.toLowerCase();
+          return keywords.some(keyword => normalized.includes(keyword));
+        });
+
+      if (fallback && fallback.textContent) {
+        statusText = fallback.textContent.trim();
+      }
+    }
+
+    const timeElement = element.querySelector('time[datetime]');
+    let lastActivityTime: number | undefined;
+    if (timeElement) {
+      const datetime = timeElement.getAttribute('datetime');
+      if (datetime) {
+        const parsed = Date.parse(datetime);
+        if (!Number.isNaN(parsed)) {
+          lastActivityTime = parsed;
+        }
+      }
+    }
+
+    const normalizedStatus = statusText?.toLowerCase() ?? '';
+    const positiveKeywords = [
+      'new chat',
+      'new snap',
+      'new message',
+      'received',
+      'непрочитано',
+      'непрочитан',
+      'новое сообщение',
+      'новый чат',
+      'получено'
+    ];
+    const negativeKeywords = [
+      'opened',
+      'просмотрено',
+      'просмотрен',
+      'viewed',
+      'sent',
+      'отправлено',
+      'delivered',
+      'seen',
+      'прочитан',
+      'прочитано'
+    ];
+
+    let hasUnread = positiveKeywords.some(keyword => normalizedStatus.includes(keyword));
+
+    if (!hasUnread) {
+      const indicatorSelectors = [
+        '[data-testid*="unread"]',
+        '[aria-label*="unread" i]',
+        '[class*="unread"]',
+        '[class*="New" i]',
+        '[class*="Badge" i]'
+      ];
+
+      hasUnread = indicatorSelectors.some(selector => !!element.querySelector(selector));
+    }
+
+    if (!hasUnread && normalizedStatus && !negativeKeywords.some(keyword => normalizedStatus.includes(keyword))) {
+      if (/(just now|только что|сейчас)/.test(normalizedStatus)) {
+        hasUnread = true;
+      }
+    }
+
+    return {
+      text: statusText,
+      hasUnread,
+      lastActivityTime
+    };
   }
 }
